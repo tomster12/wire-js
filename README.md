@@ -2,7 +2,7 @@
 
 Small javascript utility for imitating reactivity with minimal implementation and bloat.
 
-## How-To
+## Guide
 
 Import `wire.js` in a `<script>` inside html `<body>`:
 
