@@ -30,7 +30,7 @@ Use `<wire>` tags to hook into these signals:
 <p>Double: <wire to="double" /></p>
 
 <wire with="double">
-    rerendered when double is updated.
+    Rerendered when double is updated.
     Double value is {{double.get()}}.
 </wire>
 
