@@ -2,6 +2,8 @@
 
 Small javascript utility for imitating reactivity with minimal implementation and bloat.
 
+Intended to work HTML first - you define the components that you want to react in the HTML directly.
+
 ## Guide
 
 Import `wire.js` in a `<script>` inside html `<body>`:
