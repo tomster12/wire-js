@@ -20,7 +20,7 @@
 
             props = new State("props", { a: 1, b: 2, c: 3 });
 
-            function onClick1() {
+            function onClick() {
                 counter.set(counter.get() + 1);
                 const tmp = props.get();
                 tmp.a += 1;
@@ -32,7 +32,7 @@
         </script>
 
         <div>
-            <button onclick="onClick1()">Counter: <wire to="counter" /></button>
+            <button onclick="onClick()">Counter: <wire to="counter" /></button>
 
             <p>Double: <wire to="double" /></p>
 
