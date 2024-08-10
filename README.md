@@ -1,4 +1,4 @@
-# Wire
+# Wire JS
 
 Small javascript utility for imitating reactivity with minimal implementation and bloat.
 
