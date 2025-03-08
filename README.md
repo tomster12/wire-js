@@ -9,7 +9,10 @@ Intended to work HTML first - you define the components that you want to react i
 Import `wire.js` in a `<script>` inside html `<body>`:
 
 ```html
-<script src="./wire.js"></script>
+<body>
+    <script src="./wire.js"></script>
+    ...
+</body>
 ```
 
 Define `State` or `Computed` signals inside another `<script>`:
