@@ -1,60 +1,85 @@
+<style>
+	* {
+        padding: 0px;
+        margin: 0px;
+        
+	}
+
+	wire {
+		display: inline-block;
+	}
+
+	component {
+		display: block;
+	}
+
+	wire,
+	component {
+		padding: 5px;
+		background-color: #adadff;
+	}
+</style>
+
+<component name="bob" arg:text arg:number>
+    <p>Number: {{arg:number}}</p>
+    <p>Text: {{arg:text}}</p>
+</component>
+
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <title>Wire</title>
-    </head>
-    <body>
-        <script src="./wire.js"></script>
+	<head>
+		<meta charset="UTF-8" />
+		<title>Wire</title>
+	</head>
 
-        <script>
-            counter = new State("counter", 2);
+	<body>
+		<script src="./wire.js"></script>
 
-            double = new Computed("double", [counter], (c) => c * 2);
+		<script>
+			props = new Wire.State("props", { a: 1, b: 2, c: 3 });
+			counter = new Wire.State("counter", 2);
+			list = new Wire.State("list", [
+				{ number: 1, text: "Hello" },
+				{ number: 2, text: "World" },
+			]);
 
-            list = new State("list", [
-                { number: 1, text: "Hello" },
-                { number: 2, text: "World" },
-            ]);
+			double = new Wire.Computed("double", [counter], (c) => c * 2);
+			listStr = new Wire.Computed("listStr", [list], (l) => JSON.stringify(l));
 
-            listStr = new Computed("listStr", [list], (l) => JSON.stringify(l));
+			function onClickCounter() {
+				counter.set(counter.get() + 1);
 
-            props = new State("props", { a: 1, b: 2, c: 3 });
+				const tmp = props.get();
+				tmp.a += 1;
+				tmp.b *= 2;
+				tmp.c -= 1;
+				props.set(tmp);
 
-            function onClick() {
-                counter.set(counter.get() + 1);
-                const tmp = props.get();
-                tmp.a += 1;
-                tmp.b *= 2;
-                tmp.c -= 1;
-                props.set(tmp);
-                list.set([...list.get(), { number: counter.get(), text: "Click" }]);
-            }
-        </script>
+				list.set([...list.get(), { number: counter.get(), text: "Click" }]);
+			}
+		</script>
 
-        <div>
-            <button onclick="onClick()">Counter: <wire to="counter" /></button>
+		<div>
+            <div style="display: flex; flex-direction: column; gap: 15px; margin: 10px; align-items: baseline;">
+                <button onclick="onClickCounter()">Counter: <wire to="counter" /></button>
 
-            <p>Double: <wire to="double" /></p>
+                <p style=>Double: <wire to="double" /></p>
 
-            <wire with="props">
-                <p>Props: {{props.get().a}}, {{props.get().b}}, {{props.get().c}}</p>
-            </wire>
+                <wire with="props">
+                    <p>Props: {{props.get().a}}, {{props.get().b}}, {{props.get().c}}</p>
+                </wire>
 
-            <br /><br />
+                <p>Computed list string: <wire to="listStr" /></p>
 
-            <wire over="list" with="item">
-                <p>{{item.number}}: {{item.text}}</p>
-            </wire>
+				<p>Text over list:</p>
+                <wire over="list" with="el">
+                    <p>{{el.number}}: {{el.text}}</p>
+                </wire>
 
-            <p>List Str: <wire to="listStr" /></p>
-        </div>
-
-        <style>
-            wire {
-                display: inline-block;
-                padding: 5px;
-                background-color: #adadff;
-            }
-        </style>
-    </body>
+				<p>Components over list:</p>
+                <wire over="list" with="el" style="display: flex; flex-direction: row; gap: 5px; background-color: #ceceff;">
+                    <component instance name="bob" arg:text="{{el.text}}" arg:number="{{el.number}}"></component>
+                </wire>
+            </div>
+		</div>
+	</body>
 </html>
