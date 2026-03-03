@@ -1,85 +1,66 @@
-<style>
-	* {
-        padding: 0px;
-        margin: 0px;
-        
-	}
-
-	wire {
-		display: inline-block;
-	}
-
-	component {
-		display: block;
-	}
-
-	wire,
-	component {
-		padding: 5px;
-		background-color: #adadff;
-	}
-</style>
-
-<component name="bob" arg:text arg:number>
-    <p>Number: {{number}}</p>
-    <p>Text: {{text}}</p>
-</component>
-
+<!doctype html>
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<title>Wire</title>
+		<title>Wire.js</title>
+
+		<script src="./wire.js"></script>
+		<link rel="stylesheet" href="index.css" />
 	</head>
 
-	<body>
-		<script src="./wire.js"></script>
+	<script>
+		const counter = new Wire.State("counter", 1);
+		const multiplier = new Wire.State("multiplier", 2);
+		const activity = new Wire.State("activity", []);
+		const doubled = new Wire.Computed("doubled", [counter], (c) => c * 2);
+		const multiplied = new Wire.Computed("multiplied", [counter, multiplier], (c, m) => c * m);
+		const jsonState = new Wire.Computed("jsonState", [counter, multiplier, activity], (c, m, a) =>
+			JSON.stringify({ counter: c, multiplier: m, activity: a }, null, 2),
+		);
 
-		<script>
-			props = new Wire.State("props", { a: 1, b: 2, c: 3 });
-			counter = new Wire.State("counter", 2);
-			list = new Wire.State("list", [
-				{ number: 1, text: "Hello" },
-				{ number: 2, text: "World" },
-			]);
+		function increment() {
+			const next = counter.get() + 1;
+			counter.set(next);
+			activity.set([{ text: `Counter increased to ${next}` }, ...activity.get()]);
+		}
 
-			double = new Wire.Computed("double", [counter], (c) => c * 2);
-			listStr = new Wire.Computed("listStr", [list], (l) => JSON.stringify(l));
+		function changeMultiplier() {
+			const next = multiplier.get() + 1;
+			multiplier.set(next);
+			activity.set([{ text: `Multiplier changed to ${next}` }, ...activity.get()]);
+		}
+	</script>
 
-			function onClickCounter() {
-				counter.set(counter.get() + 1);
-
-				const tmp = props.get();
-				tmp.a += 1;
-				tmp.b *= 2;
-				tmp.c -= 1;
-				props.set(tmp);
-
-				list.set([...list.get(), { number: counter.get(), text: "Click" }]);
-			}
-		</script>
-
-		<div>
-            <div style="display: flex; flex-direction: column; gap: 15px; margin: 10px; align-items: baseline;">
-                <button onclick="onClickCounter()">Counter: <wire to="counter" /></button>
-
-                <p>Double: <wire to="double" /></p>
-
-                <wire with="props">
-                    <p>Props: {{props.get().a}}, {{props.get().b}}, {{props.get().c}}</p>
-                </wire>
-
-                <p>Computed list string: <wire to="listStr" /></p>
-
-				<p>Text over list:</p>
-                <wire for="list" each="el">
-                    <p>{{el.number}}: {{el.text}}</p>
-                </wire>
-
-				<p>Components over list:</p>
-                <wire for="list" each="el" style="display: flex; flex-direction: row; gap: 5px; background-color: #ceceff;">
-                    <component instance name="bob" arg:text="{{el.text}}" arg:number="{{el.number}}"></component>
-                </wire>
-            </div>
+	<component name="metric-card" arg:title arg:value>
+		<div class="card">
+			<div>{{title}}</div>
+			<div class="metric">{{value}}</div>
 		</div>
+	</component>
+
+	<component name="feed-item" arg:text>
+		<div class="feed-item">{{text}}</div>
+	</component>
+
+	<body style="padding: 20px">
+		<h1 style="margin-bottom: 20px">Wire.js</h1>
+		<div class="dashboard" style="margin-bottom: 20px">
+			<component instance name="metric-card" arg:title="Counter" arg:value="@counter"></component>
+			<component instance name="metric-card" arg:title="Doubled" arg:value="@doubled"></component>
+			<component instance name="metric-card" arg:title="Multiplied" arg:value="@multiplied"></component>
+		</div>
+
+		<div style="display: flex; gap: 20px; margin: 40px 0">
+			<button onclick="increment()">Increment Counter</button>
+			<button onclick="changeMultiplier()">Increase Multiplier</button>
+		</div>
+
+		<h2 style="margin-bottom: 20px">Activity Feed</h2>
+		<wire for="@activity" each="item" style="display: flex; flex-direction: column; gap: 5px">
+			<component instance name="feed-item" arg:text="{{item.text}}"></component>
+		</wire>
+
+		<h2 style="margin-top: 40px; margin-bottom: 20px">State Inspector</h2>
+		<pre><wire to="@jsonState"></wire></pre>
 	</body>
 </html>

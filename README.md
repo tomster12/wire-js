@@ -1,55 +1,44 @@
-# Wire JS
+# Wire.js
 
-Minimal implementation for imitating reactivity with plain JS.
+Minimal single-file reactive JS library.
 
-Intended to work HTML first - you define the components that you want to react in the HTML directly.
+## Signals
 
-## Guide
+```js
+const s = new Wire.State("name", initial);   // reactive state
+s.set(value);                                // update
+s.get();                                     // read
 
-Import `wire.js` in a `<script>` inside html `<body>`:
-
-```html
-<body>
-    <script src="./wire.js"></script>
-    ...
-</body>
+const c = new Wire.Computed("name", [s], v => v*2);   // derived
+c.get();                                              // read
 ```
 
-Define `State` or `Computed` signals inside another `<script>`:
+## `<wire>` Element
+
+| Attribute | Usage                                           |
+| --------- | ----------------------------------------------- |
+| `to`      | Bind contents to signal                         |
+| `with`    | Re-render contents on signal update             |
+| `for`     | Render contents foreach element in signal array |
+| `each`    | Variable name for element in `for`              |
 
 ```html
-<script>
-    counter = new State("counter", 2);
-    double = new Computed("double", [counter], (c) => c * 2);
-    list = new State("stuff", [{a:1}, {a:2}, {a:3}]);
-</script>
+<wire to="@state"></wire>
+<wire for="@list" each="item">{{item.name}}</wire>
+<wire with>{{customExpression}}</wire>
 ```
 
-Use `<wire>` tags to hook into these signals:
+## `<component>` Element
+
+| Attribute         | Usage                                        |
+| ----------------- | -------------------------------------------- |
+| `name`            | Component template identifier                |
+| `instance`        | Flags element as an instance of the template |
+| `arg:NAME`        | Pass or define arguments                     |
+
+Argument attributes on an `instance` are signals if defined with `@`, otherwise their values are hydrated as a template.
 
 ```html
-<button onclick="counter.set(counter.get() + 1)">
-    Counter: <wire to="counter" />
-</button>
-
-<p>Double: <wire to="double" /></p>
-
-<wire with="double">
-    Rerendered when double is updated.
-    Double value is {{double.get()}}.
-</wire>
-
-<wire for="stuff" each="item">
-    <p>This item is: {{item.a}}</p>
-</wire>
+<component name="card" arg:title arg:value>...</component>
+<component instance name="card" arg:title="Count" arg:value="@counter"></component>
 ```
-
-## To-Do
-
-- Dont rerender nested wire elements if higher up wire element will rerender entire block anyway.
-
-- Specifically only re-render children elements with code blocks inside?
-
-  - Likely toggelable through an additional attribute
-
-- Scoped variables for nested elements
