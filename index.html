@@ -62,7 +62,7 @@
             <div style="display: flex; flex-direction: column; gap: 15px; margin: 10px; align-items: baseline;">
                 <button onclick="onClickCounter()">Counter: <wire to="counter" /></button>
 
-                <p style=>Double: <wire to="double" /></p>
+                <p>Double: <wire to="double" /></p>
 
                 <wire with="props">
                     <p>Props: {{props.get().a}}, {{props.get().b}}, {{props.get().c}}</p>
@@ -71,12 +71,12 @@
                 <p>Computed list string: <wire to="listStr" /></p>
 
 				<p>Text over list:</p>
-                <wire over="list" with="el">
+                <wire for="list" each="el">
                     <p>{{el.number}}: {{el.text}}</p>
                 </wire>
 
 				<p>Components over list:</p>
-                <wire over="list" with="el" style="display: flex; flex-direction: row; gap: 5px; background-color: #ceceff;">
+                <wire for="list" each="el" style="display: flex; flex-direction: row; gap: 5px; background-color: #ceceff;">
                     <component instance name="bob" arg:text="{{el.text}}" arg:number="{{el.number}}"></component>
                 </wire>
             </div>

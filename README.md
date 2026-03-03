@@ -39,17 +39,17 @@ Use `<wire>` tags to hook into these signals:
     Double value is {{double.get()}}.
 </wire>
 
-<wire over="stuff" with="item">
+<wire for="stuff" each="item">
     <p>This item is: {{item.a}}</p>
 </wire>
 ```
 
 ## To-Do
 
-- Register / deregister HTML with the Wire singleton to handle nested wire elements.
-
 - Dont rerender nested wire elements if higher up wire element will rerender entire block anyway.
 
 - Specifically only re-render children elements with code blocks inside?
 
   - Likely toggelable through an additional attribute
+
+- Scoped variables for nested elements
