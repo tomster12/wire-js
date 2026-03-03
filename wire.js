@@ -1,11 +1,30 @@
 function evalWithVariables(code, vars) {
-	var varString = "";
-	for (const key in vars) varString += `var ${key} = ${JSON.stringify(vars[key])};`;
-	eval(varString);
-	return eval(code);
+	const argNames = Object.keys(vars);
+	const argValues = Object.values(vars);
+	const fn = new Function(...argNames, `"use strict"; return (${code});`);
+	return fn(...argValues);
+}
+
+function isEqualShallow(a, b) {
+	// Shallow equality
+	if (Object.is(a, b)) return true;
+
+	if (typeof a !== "object" || typeof b !== "object" || !a || !b)
+		return false;
+
+	const aKeys = Object.keys(a);
+	const bKeys = Object.keys(b);
+	if (aKeys.length !== bKeys.length) return false;
+
+	for (const k of aKeys) {
+		if (!Object.is(a[k], b[k])) return false;
+	}
+
+	return true;
 }
 
 class WireHydrationError extends Error {}
+
 class WireAttributeError extends Error {}
 
 class Signal {
@@ -22,6 +41,9 @@ class Signal {
 
 	listen(callback) {
 		this.listeners.push(callback);
+		return () => {
+			this.listeners = this.listeners.filter((l) => l !== callback);
+		};
 	}
 }
 
@@ -32,6 +54,8 @@ class State extends Signal {
 	}
 
 	set(value) {
+		if (isEqualShallow(this.value, value)) return;
+
 		this.value = value;
 		this.listeners.forEach((callback) => callback(this.value));
 	}
@@ -40,15 +64,36 @@ class State extends Signal {
 class Computed extends Signal {
 	constructor(name, dependencies, compute) {
 		super(name);
+
 		this.dependencies = dependencies;
 		this.compute = compute;
+		this.dependencyUnsubs = [];
+
 		const dependencyCallback = this.#onDependencyChanged.bind(this);
-		this.dependencies.forEach((signal) => signal.listen(dependencyCallback));
+
+		for (const signal of this.dependencies) {
+			const unsub = signal.listen(dependencyCallback);
+			this.dependencyUnsubs.push(unsub);
+		}
+		
 		this.#onDependencyChanged();
 	}
 
+	destroy() {
+		for (const unsub of this.dependencyUnsubs) {
+			unsub();
+		}
+		this.dependencyUnsubs = [];
+		this.listeners = [];
+	}
+
 	#onDependencyChanged() {
-		this.value = this.compute(...this.dependencies.map((dep) => dep.get()));
+		
+		const newValue = this.compute(...this.dependencies.map((dep) => dep.get()));
+
+		if (isEqualShallow(this.value, newValue)) return;
+
+		this.value = newValue;
 		this.listeners.forEach((callback) => callback(this.value));
 	}
 }
@@ -59,6 +104,10 @@ class WireElement {
 	constructor(el) {
 		this.el = el;
 		this.attributes = {};
+
+		// Cleanup any existing attached element
+		if (el.__wireInstance) el.__wireInstance.destroy();
+		el.__wireInstance = this;
 
 		// Extract and check attributes
 		for (const attrName of this.el.getAttributeNames()) {
@@ -92,8 +141,15 @@ class WireElement {
 
 		// Listen to signal and render
 		const renderCallback = this.#render.bind(this);
-		this.listenedSignal.listen(renderCallback);
+		this.listenedSignalUnsub = this.listenedSignal.listen(renderCallback);
 		this.#render();
+	}
+
+	dispose() {
+		if (this.listenedSignalUnsub) {
+			this.listenedSignalUnsub();
+			this.listenedSignalUnsub = null;
+		}
 	}
 
 	#render() {
@@ -131,6 +187,10 @@ class ComponentElement {
 		this.attributes = {};
 		this.argAttributes = {};
 		this.isInstance = false;
+
+		// Cleanup any existing attached element
+		if (el.__componentInstance) el.__componentInstance.destroy();
+		el.__componentInstance = this;
 
 		// Extract and check attributes
 		for (const attrName of this.el.getAttributeNames()) {
@@ -190,6 +250,7 @@ class ComponentElement {
 class WireController {
 	signalDict = {};
 	componentDict = {};
+	templateCache = new Map();
 
 	constructor() {
 		addEventListener("load", (e) => {
@@ -213,29 +274,54 @@ class WireController {
 		return this.signalDict[name];
 	}
 
+	compileTemplate(template) {
+		if (this.templateCache.has(template)) {
+			return this.templateCache.get(template);
+		}
+
+		const parts = [];
+		let i = 0;
+
+		while (i < template.length) {
+			const start = template.indexOf("{{", i);
+
+			if (start === -1) {
+				parts.push({ type: "text", value: template.slice(i) });
+				break;
+			}
+
+			if (start > i) {
+				parts.push({ type: "text", value: template.slice(i, start) });
+			}
+
+			const end = template.indexOf("}}", start);
+			if (end === -1)
+				throw new WireHydrationError("Missing closing }}");
+
+			const code = template.slice(start + 2, end).trim();
+			parts.push({ type: "expr", value: code });
+
+			i = end + 2;
+		}
+
+		this.templateCache.set(template, parts);
+		return parts;
+	}
+
 	hydrateTemplate(template, variables = {}) {
-		let hydrated = template;
+		const parts = this.compileTemplate(template);
 
-		for (let i = 0; i < hydrated.length; i++) {
-			if (hydrated[i] === "{") {
-				if (i == hydrated.length - 1) throw new WireHydrationError("found single '{' at EOF");
-				if (hydrated[i + 1] !== "{") continue;
+		let result = "";
 
-				let end = hydrated.indexOf("}", i);
-				if (end === -1) throw new WireHydrationError("could not find closing '}");
-				if (end == i + 2) {
-					throw new WireHydrationError("Empty code block in template");
-				}
-				if (end == hydrated.length - 1) throw new WireHydrationError("found single '}' at EOF");
-				if (hydrated[end + 1] !== "}") throw new WireHydrationError("found single '}'");
-
-				const code = hydrated.slice(i + 2, end);
-				const result = evalWithVariables(code, variables);
-				hydrated = hydrated.slice(0, i) + result + hydrated.slice(end + 2);
+		for (const part of parts) {
+			if (part.type === "text") {
+				result += part.value;
+			} else {
+				result += evalWithVariables(part.value, variables);
 			}
 		}
 
-		return hydrated;
+		return result;
 	}
 }
 
