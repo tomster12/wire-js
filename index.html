@@ -17,6 +17,8 @@
 		const jsonState = new Wire.Computed("jsonState", [counter, multiplier, activity], (c, m, a) =>
 			JSON.stringify({ counter: c, multiplier: m, activity: a }, null, 2),
 		);
+		
+		counter.listen(v => console.log(`Counter: ${v}`));
 
 		function increment() {
 			const next = counter.get() + 1;
@@ -79,7 +81,10 @@
 				</wire>
 			</div>
 
-			<h2 style="margin-top: 20px; margin-bottom: 20px">State Inspector</h2>
+			<h2 style="margin-top: 20px; margin-bottom: 20px">
+				State Inspector
+				<wire with="@activity" to="{{ '(' + activity.get().length + ')' }}" if="{{activity.get().length > 0}}"></wire>
+			</h2>
 			<pre><wire to="@jsonState"></wire></pre>
 		</div>
 	</body>

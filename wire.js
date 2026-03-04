@@ -116,7 +116,7 @@ class Computed extends Signal {
 
 class WireElement {
 	static ALLOWED_ATTRIBUTES = {
-		to: ["signal"],
+		to: ["signal", "expr"],
 		with: ["signal"],
 		for: ["signal", "expr"],
 		each: ["literal"],
@@ -197,7 +197,7 @@ class WireElement {
 
 		// Directly render signal value
 		if (Object.hasOwn(this.attributes, "to")) {
-			this.el.innerHTML = this.attributes.to.signal.get();
+			this.el.innerHTML = Wire.controller.evaluateAttribute(this.attributes.to);
 			Wire.controller.mountElements(this.el);
 			return;
 		}

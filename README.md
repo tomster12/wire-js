@@ -11,6 +11,8 @@ s.get(); // read
 
 const c = new Wire.Computed("name", [s], (v) => v * 2); // derived state
 c.get(); // read
+
+c.listen(v => console.log(v)); // Signal listener
 ```
 
 ## `<wire>` Element
