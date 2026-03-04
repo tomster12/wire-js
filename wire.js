@@ -25,7 +25,7 @@ function isEqualShallow(a, b) {
 function parseAttribute(attrName, attrValue, allowedTypes, source) {
 	let attr = {};
 	if (attrValue.startsWith("@")) {
-		const signal = Wire.controller.resolveSignal(attrValue.slice(1));
+		const signal = controller.resolveSignal(attrValue.slice(1));
 		attr = { type: "signal", signal, value: attrValue };
 	} else if (attrValue.startsWith("{{")) {
 		if (!attrValue.endsWith("}}")) throw new WireAttributeError("An argument starting with '{{' must end with '}}'");
@@ -54,7 +54,7 @@ class Signal {
 		this.value = undefined;
 		this.listeners = [];
 
-		Wire.controller.registerSignal(name, this);
+		controller.registerSignal(name, this);
 	}
 
 	get() {
@@ -92,11 +92,11 @@ class Computed extends Signal {
 		this.dependencyUnsubs = [];
 
 		for (const signal of this.dependencies) {
-			const unsub = signal.listen(this.#recalculate.bind(this));
+			const unsub = signal.listen(this.recalculate.bind(this));
 			this.dependencyUnsubs.push(unsub);
 		}
 
-		this.#recalculate();
+		this.recalculate();
 	}
 
 	dispose() {
@@ -105,7 +105,7 @@ class Computed extends Signal {
 		this.listeners = [];
 	}
 
-	#recalculate() {
+	recalculate() {
 		const newValue = this.compute(...this.dependencies.map((dep) => dep.get()));
 		if (isEqualShallow(this.value, newValue)) return;
 
@@ -170,11 +170,11 @@ class WireElement {
 		for (const attrName in this.attributes) {
 			if (this.attributes[attrName].type === "signal") {
 				const signal = this.attributes[attrName].signal;
-				this.signalUnsubs.push(signal.listen(this.#render.bind(this)));
+				this.signalUnsubs.push(signal.listen(this.render.bind(this)));
 			}
 		}
 
-		this.#render();
+		this.render();
 	}
 
 	dispose() {
@@ -182,10 +182,10 @@ class WireElement {
 		this.signalUnsubs = [];
 	}
 
-	#render() {
+	render() {
 		// Conditional rendering on if
 		if (Object.hasOwn(this.attributes, "if")) {
-			let toRender = Wire.controller.evaluateAttribute(this.attributes.if);
+			let toRender = controller.evaluateAttribute(this.attributes.if);
 			if (!toRender) {
 				this.el.style.display = "none";
 				this.el.innerHTML = "";
@@ -197,25 +197,25 @@ class WireElement {
 
 		// Directly render signal value
 		if (Object.hasOwn(this.attributes, "to")) {
-			this.el.innerHTML = Wire.controller.evaluateAttribute(this.attributes.to);
-			Wire.controller.mountElements(this.el);
+			this.el.innerHTML = controller.evaluateAttribute(this.attributes.to);
+			controller.mountElements(this.el);
 			return;
 		}
 
 		// Hydrate template for each item in list
 		if (Object.hasOwn(this.attributes, "for")) {
-			const list = Wire.controller.evaluateAttribute(this.attributes.for);
+			const list = controller.evaluateAttribute(this.attributes.for);
 			this.el.innerHTML = list.reduce((acc, item) => {
 				let values = Object.hasOwn(this.attributes, "each") ? { [this.attributes.each.value]: item } : {};
-				return acc + Wire.controller.hydrateTemplate(this.template, values);
+				return acc + controller.hydrateTemplate(this.template, values);
 			}, "");
-			Wire.controller.mountElements(this.el);
+			controller.mountElements(this.el);
 		}
 
 		// Hydrate template
 		else if (Object.hasOwn(this.attributes, "with")) {
-			this.el.innerHTML = Wire.controller.hydrateTemplate(this.template);
-			Wire.controller.mountElements(this.el);
+			this.el.innerHTML = controller.hydrateTemplate(this.template);
+			controller.mountElements(this.el);
 		}
 	}
 }
@@ -267,7 +267,7 @@ class ComponentElement {
 
 		// If we are a template then register template and hide
 		if (!this.isInstance) {
-			Wire.controller.registerComponentTemplate(this.attributes.name.value, { template: this.el.innerHTML, args: Object.keys(this.argAttributes) });
+			controller.registerComponentTemplate(this.attributes.name.value, { template: this.el.innerHTML, args: Object.keys(this.argAttributes) });
 			this.el.innerHTML = "";
 			this.el.style.display = "none";
 			return;
@@ -277,11 +277,11 @@ class ComponentElement {
 		for (const argAttrName in this.argAttributes) {
 			if (this.argAttributes[argAttrName].type == "signal") {
 				const signal = this.argAttributes[argAttrName].signal;
-				this.signalUnsubs.push(signal.listen(this.#render.bind(this)));
+				this.signalUnsubs.push(signal.listen(this.render.bind(this)));
 			}
 		}
 
-		this.#render();
+		this.render();
 	}
 
 	dispose() {
@@ -289,31 +289,33 @@ class ComponentElement {
 		this.signalUnsubs = [];
 	}
 
-	#render() {
-		const componentTemplate = Wire.controller.resolveComponentTemplate(this.attributes.name.value);
+	render() {
+		const componentTemplate = controller.resolveComponentTemplate(this.attributes.name.value);
 
 		// Collect required arguments for the template
 		const values = {};
 		for (const arg of componentTemplate.args) {
 			if (Object.hasOwn(this.argAttributes, arg)) {
-				values[arg] = Wire.controller.evaluateAttribute(this.argAttributes[arg]);
+				values[arg] = controller.evaluateAttribute(this.argAttributes[arg]);
 			} else {
 				values[arg] = null;
 			}
 		}
 
 		// Hydrate and render template
-		this.el.innerHTML = Wire.controller.hydrateTemplate(componentTemplate.template, values);
-		Wire.controller.mountElements(this.el);
+		this.el.innerHTML = controller.hydrateTemplate(componentTemplate.template, values);
+		controller.mountElements(this.el);
 	}
 }
 
 class WireController {
-	#signalDict = {};
-	#componentTemplateDict = {};
-	#compiledTemplateCache = new Map();
-	#mountedElements = new WeakSet();
-	#observer = null;
+	static elementRegistry = { wire: WireElement, component: ComponentElement };
+
+	signalDict = {};
+	componentTemplateDict = {};
+	compiledTemplateCache = new Map();
+	mountedElements = new WeakSet();
+	observer = null;
 
 	constructor() {
 		addEventListener("load", () => {
@@ -322,63 +324,47 @@ class WireController {
 		});
 	}
 
-	startCleanupObserver() {
-		// Track when any DOM mutation occurs
-		this.#observer = new MutationObserver((mutations) => {
-			for (const mutation of mutations) {
-				for (const node of mutation.removedNodes) {
-					if (node.nodeType !== Node.ELEMENT_NODE) continue;
-
-					// Dispose any mounted wire.js elements
-					const allNodes = [node, ...(node.querySelectorAll?.("wire,component") ?? [])];
-					for (const el of allNodes) {
-						el.__wireInstance?.dispose();
-					}
-				}
-			}
-		});
-
-		this.#observer.observe(document.body, { childList: true, subtree: true });
-	}
-
 	mountElements(parent) {
 		// Grab all outermost wire.js children elements
-		const elementRegistry = { wire: WireElement, component: ComponentElement };
-		const elementSelector = Object.keys(elementRegistry).join(",");
+		const elementSelector = Object.keys(WireController.elementRegistry).join(",");
 		const allElements = [...parent.querySelectorAll(elementSelector)];
 		const outermostElements = allElements.filter((el) => !allElements.some((other) => other !== el && other.contains(el)));
 
 		// Mount each if they are not already mounted
 		for (const el of outermostElements) {
-			if (this.#mountedElements.has(el)) continue;
-			this.#mountedElements.add(el);
-			const instance = new elementRegistry[el.localName](el);
-			el.__wireInstance = instance;
+			this.mountElement(el);
 		}
 	}
 
+	mountElement(element) {
+		if (this.mountedElements.has(element)) return;
+		this.mountedElements.add(element);
+		const instance = new WireController.elementRegistry[element.localName](element);
+		element.__wireInstance = instance;
+	}
+
 	registerSignal(name, signal) {
-		if (Object.hasOwn(this.#signalDict, name)) throw new WireRegistrationError(`Signal '${name}' is already registered`);
-		this.#signalDict[name] = signal;
+		if (Object.hasOwn(this.signalDict, name)) throw new WireRegistrationError(`Signal '${name}' is already registered`);
+		this.signalDict[name] = signal;
 	}
 
 	resolveSignal(name) {
-		if (!Object.hasOwn(this.#signalDict, name)) throw new WireRegistrationError(`Signal '${name}' is not registered`);
-		return this.#signalDict[name];
+		if (!Object.hasOwn(this.signalDict, name)) throw new WireRegistrationError(`Signal '${name}' is not registered`);
+		return this.signalDict[name];
 	}
 
 	registerComponentTemplate(name, component) {
-		if (Object.hasOwn(this.#componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is already registered`);
-		this.#componentTemplateDict[name] = component;
+		if (Object.hasOwn(this.componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is already registered`);
+		this.componentTemplateDict[name] = component;
 	}
 
 	resolveComponentTemplate(name) {
-		if (!Object.hasOwn(this.#componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is not registered`);
-		return this.#componentTemplateDict[name];
+		if (!Object.hasOwn(this.componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is not registered`);
+		return this.componentTemplateDict[name];
 	}
 
 	hydrateTemplate(template, variables = {}) {
-		const templateParts = this.#compileTemplate(template);
+		const templateParts = this.compileTemplate(template);
 
 		let result = "";
 
@@ -393,9 +379,39 @@ class WireController {
 		return result;
 	}
 
-	#compileTemplate(template) {
-		if (this.#compiledTemplateCache.has(template)) {
-			return this.#compiledTemplateCache.get(template);
+	evaluateAttribute(attr) {
+		if (attr.type == "signal") {
+			return attr.signal.get();
+		} else if (attr.type == "literal") {
+			return attr.value;
+		} else if (attr.type == "expr") {
+			const content = attr.value.slice(2, attr.value.length - 2);
+			return evalWithVariables(content);
+		}
+	}
+
+	startCleanupObserver() {
+		// Track when any DOM mutation occurs
+		this.observer = new MutationObserver((mutations) => {
+			for (const mutation of mutations) {
+				for (const node of mutation.removedNodes) {
+					if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+					// Dispose any mounted wire.js elements
+					const allNodes = [node, ...(node.querySelectorAll?.("wire,component") ?? [])];
+					for (const el of allNodes) {
+						el.__wireInstance?.dispose();
+					}
+				}
+			}
+		});
+
+		this.observer.observe(document.body, { childList: true, subtree: true });
+	}
+
+	compileTemplate(template) {
+		if (this.compiledTemplateCache.has(template)) {
+			return this.compiledTemplateCache.get(template);
 		}
 
 		let parts = [];
@@ -422,24 +438,18 @@ class WireController {
 			i = end + 2;
 		}
 
-		this.#compiledTemplateCache.set(template, parts);
+		this.compiledTemplateCache.set(template, parts);
 		return parts;
-	}
-
-	evaluateAttribute(attr) {
-		if (attr.type == "signal") {
-			return attr.signal.get();
-		} else if (attr.type == "literal") {
-			return attr.value;
-		} else if (attr.type == "expr") {
-			const content = attr.value.slice(2, attr.value.length - 2);
-			return evalWithVariables(content);
-		}
 	}
 }
 
+const controller = new WireController();
+
 window.Wire = {
-	controller: new WireController(),
+	controller: {
+		mountElement: controller.mountElement,
+		mountElements: controller.mountElements,
+	},
 	State,
 	Computed,
 };
