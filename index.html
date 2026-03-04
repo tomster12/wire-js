@@ -29,6 +29,10 @@
 			multiplier.set(next);
 			activity.set([{ text: `Multiplier changed to ${next}` }, ...activity.get()]);
 		}
+
+		function clearActivity() {
+			activity.set([]);
+		}
 	</script>
 
 	<component name="metric-card" arg:title arg:value>
@@ -50,17 +54,31 @@
 			<component instance name="metric-card" arg:title="Multiplied" arg:value="@multiplied"></component>
 		</div>
 
-		<div style="display: flex; gap: 20px; margin: 40px 0">
+		<div class="feed-item" style="margin: 20px 0">
+			Counter is:
+			<wire with="@counter" if="{{counter.get() % 2 == 1}}"> Odd </wire>
+			<wire with="@counter" if="{{counter.get() % 2 == 0}}"> Even </wire>
+		</div>
+
+		<div style="display: flex; gap: 20px; margin-bottom: 20px">
 			<button onclick="increment()">Increment Counter</button>
 			<button onclick="changeMultiplier()">Increase Multiplier</button>
+			<button onclick="clearActivity()">Clear Activity</button>
 		</div>
 
 		<h2 style="margin-bottom: 20px">Activity Feed</h2>
-		<wire for="@activity" each="item" style="display: flex; flex-direction: column; gap: 5px">
-			<component instance name="feed-item" arg:text="{{item.text}}"></component>
-		</wire>
 
-		<h2 style="margin-top: 40px; margin-bottom: 20px">State Inspector</h2>
+		<div class="feed-container">
+			<wire if="{{activity.get().length > 0}}" for="@activity" each="item" class="feed">
+				<component instance name="feed-item" arg:text="{{item.text}}"></component>
+			</wire>
+
+			<wire if="{{activity.get().length == 0}}" with="@activity">
+				<i style="color: #ffffff28">No feed items available</i>
+			</wire>
+		</div>
+
+		<h2 style="margin-top: 20px; margin-bottom: 20px">State Inspector</h2>
 		<pre><wire to="@jsonState"></wire></pre>
 	</body>
 </html>

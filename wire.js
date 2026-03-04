@@ -1,4 +1,4 @@
-function evalWithVariables(code, vars) {
+function evalWithVariables(code, vars = {}) {
 	const argNames = Object.keys(vars);
 	const argValues = Object.values(vars);
 	const fn = new Function(...argNames, `"use strict"; return (${code});`);
@@ -20,6 +20,26 @@ function isEqualShallow(a, b) {
 	}
 
 	return true;
+}
+
+function parseAttribute(attrName, attrValue, allowedTypes, source) {
+	let attr = {};
+	if (attrValue.startsWith("@")) {
+		const signal = Wire.controller.resolveSignal(attrValue.slice(1));
+		attr = { type: "signal", signal, value: attrValue };
+	} else if (attrValue.startsWith("{{")) {
+		if (!attrValue.endsWith("}}")) throw new WireAttributeError("An argument starting with '{{' must end with '}}'");
+		attr = { type: "resolvable", value: attrValue };
+	} else if (attrValue == null || attrValue.length == 0) {
+		attr = { type: "flag" };
+	} else {
+		attr = { type: "literal", value: attrValue };
+	}
+	if (!allowedTypes.includes(attr.type))
+		throw new WireAttributeError(
+			`Attribute '${attrName}' cannot be type '${attr.type}' with value '${attrValue}' on ${source} elements (allowed=${JSON.stringify(allowedTypes)})`,
+		);
+	return attr;
 }
 
 class WireHydrationError extends Error {}
@@ -95,185 +115,250 @@ class Computed extends Signal {
 }
 
 class WireElement {
-	static ALLOWED_ATTRIBUTES = ["to", "with", "for", "each", "style", "class"];
+	static ALLOWED_ATTRIBUTES = {
+		to: ["signal"],
+		with: ["signal"],
+		for: ["signal"],
+		each: ["literal"],
+		if: ["signal", "resolvable"],
+		style: ["literal"],
+		class: ["literal"],
+	};
 
 	constructor(el) {
 		this.el = el;
 		this.attributes = {};
-		this.attrSignals = {};
-		this.attrSignalUnsubs = [];
+		this.signalUnsubs = [];
 		this.template = null;
 
-		// Extract and check attributes
+		// Extract and validate attributes
 		for (const attrName of this.el.getAttributeNames()) {
-			if (!WireElement.ALLOWED_ATTRIBUTES.includes(attrName)) {
-				throw new WireAttributeError(`Wire element not allowed attribute '${attrName}'`);
+			if (!Object.hasOwn(WireElement.ALLOWED_ATTRIBUTES, attrName)) {
+				throw new WireAttributeError(`<wire> element not allowed attribute '${attrName}'`);
 			}
-			this.attributes[attrName] = this.el.getAttribute(attrName);
-		}
-		const signalAttributes = ["to", "with", "for"];
-		const foundSignalAttributes = signalAttributes.filter((a) => this.hasAttribute(a));
-		if (foundSignalAttributes.length > 1) {
-			throw new WireAttributeError(`Can only use at most 1 signal attributes (${signalAttributes}): ${JSON.stringify(this.attributes)}`);
-		}
-		if (this.hasAttribute("each") && (this.hasAttribute("to") || this.hasAttribute("with"))) {
-			throw new WireAttributeError(`Cannot use 'each' with 'to' or 'with': ${JSON.stringify(this.attributes)}`);
+			const allowedTypes = WireElement.ALLOWED_ATTRIBUTES[attrName];
+			const attrValue = this.el.getAttribute(attrName);
+			this.attributes[attrName] = parseAttribute(attrName, attrValue, allowedTypes, "<wire>");
 		}
 
-		// Store template if needed
-		if (this.hasAttribute("for") || this.hasAttribute("with")) {
+		const signalAttributes = Object.values(this.attributes).filter((a) => a.type == "signal");
+		if (signalAttributes.length > 1) {
+			throw new WireAttributeError(
+				`Can only use at most 1 signal attributes, found ${signalAttributes.length} (attributes=${JSON.stringify(this.attributes)})`,
+			);
+		}
+
+		if (signalAttributes.length == 0 && Object.hasOwn(this.attributes, "if")) {
+			throw new WireAttributeError(
+				`Cannot use if unless you reference a signal (attributes=${JSON.stringify(this.attributes)})`,
+			);
+		}
+
+		if (Object.hasOwn(this.attributes, "each") && (Object.hasOwn(this.attributes, "to") || Object.hasOwn(this.attributes, "with"))) {
+			throw new WireAttributeError(`Cannot use 'each' with 'to' or 'with' (attributes=${JSON.stringify(this.attributes)})`);
+		}
+
+		if (Object.hasOwn(this.attributes, "to") && this.el.innerHTML != null && this.el.innerHTML.length > 0) {
+			throw new WireAttributeError(`Cannot use 'to' if you have HTML content (attributes=${JSON.stringify(this.attributes)})`);
+		}
+
+		// Store HTML content as template
+		if (
+			Object.hasOwn(this.attributes, "for") ||
+			Object.hasOwn(this.attributes, "with") ||
+			(Object.hasOwn(this.attributes, "if") && this.attributes.if.type == "signal")
+		) {
 			this.template = this.el.innerHTML;
 			this.el.innerHTML = "";
 		}
 
-		// Resolve attribute signal
-		if (foundSignalAttributes.length == 1) {
-			const attrName = foundSignalAttributes[0];
-			const attrValue = this.attributes[attrName];
-			if (!attrValue.startsWith("@")) {
-				throw new WireAttributeError(`Attribute '${attrName}' must begin with @ to reference a signal`);
-			}
-			const signal = Wire.controller.resolveSignal(attrValue.slice(1));
-			this.attrSignals[attrName] = signal;
-			this.attrSignalUnsubs.push(signal.listen(this.#render.bind(this)));
+		// Listen to the attribute signal (assuming <= 1)
+		if (signalAttributes.length == 1) {
+			const signal = signalAttributes[0].signal;
+			this.signalUnsubs.push(signal.listen(this.#render.bind(this)));
 		}
 
 		this.#render();
 	}
 
-	hasAttribute(a) {
-		return Object.hasOwn(this.attributes, a);
-	}
-
 	dispose() {
-		for (const unsub of this.attrSignalUnsubs) unsub();
-		this.attrSignalUnsubs = [];
+		for (const unsub of this.signalUnsubs) unsub();
+		this.signalUnsubs = [];
 	}
 
 	#render() {
-		this.el.style = this.attributes.style;
+		// Conditional rendering on if
+		if (Object.hasOwn(this.attributes, "if")) {
+			let toRender = Wire.controller.evaluateAttribute(this.attributes.if);
+			if (!toRender) {
+				this.el.style.display = "none";
+				this.el.innerHTML = "";
+				return;
+			}
+		}
+
+		this.el.style = this.attributes.style?.value;
 
 		// Directly render signal value
-		if (this.hasAttribute("to")) {
-			this.el.innerHTML = this.attrSignals.to.get();
+		if (Object.hasOwn(this.attributes, "to")) {
+			this.el.innerHTML = this.attributes.to.signal.get();
+			Wire.controller.mountElements(this.el);
+			return;
 		}
 
-		// Hydrate and render template for each item in list
-		else if (this.hasAttribute("for")) {
-			const list = this.attrSignals.for.get();
-			console.log("Hello");
+		// Hydrate template for each item in list
+		if (Object.hasOwn(this.attributes, "for")) {
+			const list = this.attributes.for.signal.get();
 			this.el.innerHTML = list.reduce((acc, item) => {
-				let values = this.hasAttribute("each") ? { [this.attributes.each]: item } : {};
-				console.log(values);
+				let values = Object.hasOwn(this.attributes, "each") ? { [this.attributes.each.value]: item } : {};
 				return acc + Wire.controller.hydrateTemplate(this.template, values);
 			}, "");
+			Wire.controller.mountElements(this.el);
 		}
 
-		// Hydrate and render template
-		else if (this.hasAttribute("with")) {
+		// Hydrate template
+		else if (Object.hasOwn(this.attributes, "with")) {
 			this.el.innerHTML = Wire.controller.hydrateTemplate(this.template);
+			Wire.controller.mountElements(this.el);
 		}
-
-		// Recursively rerender children
-		Wire.controller.rerenderElement(this.el);
 	}
 }
 
 class ComponentElement {
-	static ALLOWED_ATTRIBUTES = ["name", "instance", "style", "class"];
+	static ALLOWED_ATTRIBUTES = {
+		name: ["literal"],
+		instance: ["flag"],
+		style: ["literal"],
+		class: ["literal"],
+	};
 
 	constructor(el) {
 		this.el = el;
 		this.attributes = {};
 		this.argAttributes = {};
-		this.argAttrSignals = {};
-		this.argAttrUnsubs = [];
+		this.signalUnsubs = [];
 		this.isInstance = false;
 
-		// Extract and check attributes
+		// Extract and validate attributes
+		let argAttributeNames = [];
 		for (const attrName of this.el.getAttributeNames()) {
 			if (attrName.startsWith("arg:")) {
-				this.argAttributes[attrName.slice(4)] = this.el.getAttribute(attrName);
+				argAttributeNames.push(attrName);
 				continue;
 			}
-			if (!ComponentElement.ALLOWED_ATTRIBUTES.includes(attrName)) {
-				throw new WireAttributeError(`Component element not allowed attribute '${attrName}'`);
+
+			if (!Object.hasOwn(ComponentElement.ALLOWED_ATTRIBUTES, attrName)) {
+				throw new WireAttributeError(`<component> element not allowed attribute '${attrName}'`);
 			}
-			this.attributes[attrName] = this.el.getAttribute(attrName);
+
+			const allowedTypes = ComponentElement.ALLOWED_ATTRIBUTES[attrName];
+			const attrValue = this.el.getAttribute(attrName);
+			this.attributes[attrName] = parseAttribute(attrName, attrValue, allowedTypes, "<component>");
 		}
-		if (!this.hasAttribute("name")) {
+
+		this.isInstance = Object.hasOwn(this.attributes, "instance");
+
+		for (const attrName of argAttributeNames) {
+			const allowedTypes = this.isInstance ? ["signal", "literal", "resolvable"] : ["flag"];
+			const attrValue = this.el.getAttribute(attrName);
+			const realAttrName = attrName.slice(4);
+			this.argAttributes[realAttrName] = parseAttribute(attrName, attrValue, allowedTypes, "<component>");
+		}
+
+		if (!Object.hasOwn(this.attributes, "name")) {
 			throw new WireAttributeError("Component element requires a 'name' attribute");
 		}
 
-		// If we are an instance
-		this.isInstance = this.hasAttribute("instance");
-		if (this.isInstance) {
-			// Resolve arg attribute signals
-			for (const argAttrName in this.argAttributes) {
-				const argAttrValue = this.argAttributes[argAttrName];
-				if (argAttrValue.startsWith("@")) {
-					const signal = Wire.controller.resolveSignal(argAttrValue.slice(1));
-					this.argAttrSignals[argAttrName] = signal;
-					this.argAttrUnsubs.push(signal.listen(this.#render.bind(this)));
-				}
-			}
-
-			// And render
-			this.#render();
-		}
-
 		// If we are a template then register template and hide
-		else {
-			Wire.controller.registerComponent(this.attributes.name, { template: this.el.innerHTML, args: this.argAttributes });
+		if (!this.isInstance) {
+			Wire.controller.registerComponentTemplate(this.attributes.name.value, { template: this.el.innerHTML, args: Object.keys(this.argAttributes) });
 			this.el.innerHTML = "";
 			this.el.style.display = "none";
+			return;
 		}
+
+		// Otherwise we are an instance, listen to signal attributes
+		for (const argAttrName in this.argAttributes) {
+			if (this.argAttributes[argAttrName].type == "signal") {
+				const signal = this.argAttributes[argAttrName].signal;
+				this.signalUnsubs.push(signal.listen(this.#render.bind(this)));
+			}
+		}
+
+		this.#render();
 	}
 
-	hasAttribute(a) {
-		return Object.hasOwn(this.attributes, a);
+	dispose() {
+		for (const unsub of this.signalUnsubs) unsub();
+		this.signalUnsubs = [];
 	}
 
 	#render() {
-		// Hydrate and render template
-		const component = Wire.controller.resolveComponent(this.attributes.name);
+		const componentTemplate = Wire.controller.resolveComponentTemplate(this.attributes.name.value);
+
+		// Collect required arguments for the template
 		const values = {};
-		for (const arg in component.args) {
+		for (const arg of componentTemplate.args) {
 			if (Object.hasOwn(this.argAttributes, arg)) {
-				if (Object.hasOwn(this.argAttrSignals, arg)) {
-					values[arg] = this.argAttrSignals[arg].get();
-				} else {
-					console.log(this.argAttributes[arg]);
-					values[arg] = Wire.controller.hydrateTemplate(this.argAttributes[arg]);
-				}
+				values[arg] = Wire.controller.evaluateAttribute(this.argAttributes[arg]);
 			} else {
 				values[arg] = null;
 			}
 		}
-		this.el.innerHTML = Wire.controller.hydrateTemplate(component.template, values);
 
-		// Recursively rerender children
-		Wire.controller.rerenderElement(this.el);
+		// Hydrate and render template
+		this.el.innerHTML = Wire.controller.hydrateTemplate(componentTemplate.template, values);
+		Wire.controller.mountElements(this.el);
 	}
 }
 
 class WireController {
 	#signalDict = {};
-	#componentDict = {};
+	#componentTemplateDict = {};
 	#compiledTemplateCache = new Map();
+	#mountedElements = new WeakSet();
+	#observer = null;
 
 	constructor() {
-		addEventListener("load", (e) => {
-			this.rerenderElement(document);
+		addEventListener("load", () => {
+			this.mountElements(document);
+			this.startCleanupObserver();
 		});
 	}
 
-	rerenderElement(element) {
-		const wireElements = element.getElementsByTagName("wire");
-		for (const el of wireElements) new WireElement(el);
+	startCleanupObserver() {
+		// Track when any DOM mutation occurs
+		this.#observer = new MutationObserver((mutations) => {
+			for (const mutation of mutations) {
+				for (const node of mutation.removedNodes) {
+					if (node.nodeType !== Node.ELEMENT_NODE) continue;
 
-		const componentElements = Array.from(element.getElementsByTagName("component"));
-		for (const el of componentElements) new ComponentElement(el);
+					// Dispose any mounted wire.js elements
+					const allNodes = [node, ...(node.querySelectorAll?.("wire,component") ?? [])];
+					for (const el of allNodes) {
+						el.__wireInstance?.dispose();
+					}
+				}
+			}
+		});
+
+		this.#observer.observe(document.body, { childList: true, subtree: true });
+	}
+
+	mountElements(parent) {
+		// Grab all outermost wire.js children elements
+		const elementRegistry = { wire: WireElement, component: ComponentElement };
+		const elementSelector = Object.keys(elementRegistry).join(",");
+		const allElements = [...parent.querySelectorAll(elementSelector)];
+		const outermostElements = allElements.filter((el) => !allElements.some((other) => other !== el && other.contains(el)));
+
+		// Mount each if they are not already mounted
+		for (const el of outermostElements) {
+			if (this.#mountedElements.has(el)) continue;
+			this.#mountedElements.add(el);
+			const instance = new elementRegistry[el.localName](el);
+			el.__wireInstance = instance;
+		}
 	}
 
 	registerSignal(name, signal) {
@@ -286,14 +371,14 @@ class WireController {
 		return this.#signalDict[name];
 	}
 
-	registerComponent(name, component) {
-		if (Object.hasOwn(this.#componentDict, name)) throw new WireRegistrationError(`Component '${name}' is already registered`);
-		this.#componentDict[name] = component;
+	registerComponentTemplate(name, component) {
+		if (Object.hasOwn(this.#componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is already registered`);
+		this.#componentTemplateDict[name] = component;
 	}
 
-	resolveComponent(name) {
-		if (!Object.hasOwn(this.#componentDict, name)) throw new WireRegistrationError(`Component '${name}' is not registered`);
-		return this.#componentDict[name];
+	resolveComponentTemplate(name) {
+		if (!Object.hasOwn(this.#componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is not registered`);
+		return this.#componentTemplateDict[name];
 	}
 
 	hydrateTemplate(template, variables = {}) {
@@ -343,6 +428,17 @@ class WireController {
 
 		this.#compiledTemplateCache.set(template, parts);
 		return parts;
+	}
+
+	evaluateAttribute(attr) {
+		if (attr.type == "signal") {
+			return attr.signal.get();
+		} else if (attr.type == "literal") {
+			return attr.value;
+		} else if (attr.type == "resolvable") {
+			const content = attr.value.slice(2, attr.value.length - 2);
+			return evalWithVariables(content);
+		}
 	}
 }
 
