@@ -72,11 +72,3 @@ Instance `arg:` values can be:
 <!-- Use an instance -->
 <component instance name="metric-card" arg:title="Count" arg:value="@counter"></component>
 ```
-
-## Attribute Value Types
-
-| Syntax       | Type                 | Example                |
-| ------------ | -------------------- | ---------------------- |
-| `@name`      | Signal reference     | `to="@counter"`        |
-| `{{ expr }}` | Evaluated expression | `if="{{ count > 5 }}"` |
-| plain string | Literal value        | `arg:title="Hello"`    |
