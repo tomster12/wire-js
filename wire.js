@@ -29,7 +29,7 @@ function parseAttribute(attrName, attrValue, allowedTypes, source) {
 		attr = { type: "signal", signal, value: attrValue };
 	} else if (attrValue.startsWith("{{")) {
 		if (!attrValue.endsWith("}}")) throw new WireAttributeError("An argument starting with '{{' must end with '}}'");
-		attr = { type: "resolvable", value: attrValue };
+		attr = { type: "expr", value: attrValue };
 	} else if (attrValue == null || attrValue.length == 0) {
 		attr = { type: "flag" };
 	} else {
@@ -118,9 +118,9 @@ class WireElement {
 	static ALLOWED_ATTRIBUTES = {
 		to: ["signal"],
 		with: ["signal"],
-		for: ["signal"],
+		for: ["signal", "expr"],
 		each: ["literal"],
-		if: ["signal", "resolvable"],
+		if: ["signal", "expr"],
 		style: ["literal"],
 		class: ["literal"],
 	};
@@ -141,41 +141,37 @@ class WireElement {
 			this.attributes[attrName] = parseAttribute(attrName, attrValue, allowedTypes, "<wire>");
 		}
 
-		const signalAttributes = Object.values(this.attributes).filter((a) => a.type == "signal");
-		if (signalAttributes.length > 1) {
-			throw new WireAttributeError(
-				`Can only use at most 1 signal attributes, found ${signalAttributes.length} (attributes=${JSON.stringify(this.attributes)})`,
-			);
+		const contentAttributes = ["for", "to"];
+		const foundContentAttributes = contentAttributes.filter((a) => Object.hasOwn(this.attributes, a));
+		if (foundContentAttributes.length > 1) {
+			throw new WireAttributeError(`Content attributes ${contentAttributes} are mutually exclusive but found: ${foundContentAttributes}`);
 		}
 
-		if (signalAttributes.length == 0 && Object.hasOwn(this.attributes, "if")) {
-			throw new WireAttributeError(
-				`Cannot use if unless you reference a signal (attributes=${JSON.stringify(this.attributes)})`,
-			);
+		if (Object.hasOwn(this.attributes, "each") && !Object.hasOwn(this.attributes, "for")) {
+			throw new WireAttributeError(`Attribute 'each' requires 'for', found attributes: ${JSON.stringify(this.attributes)}`);
 		}
 
-		if (Object.hasOwn(this.attributes, "each") && (Object.hasOwn(this.attributes, "to") || Object.hasOwn(this.attributes, "with"))) {
-			throw new WireAttributeError(`Cannot use 'each' with 'to' or 'with' (attributes=${JSON.stringify(this.attributes)})`);
+		if (Object.hasOwn(this.attributes, "to") && this.el.innerHTML.length > 0) {
+			throw new WireAttributeError(`Cannot use 'to' if element has HTML content`);
 		}
 
-		if (Object.hasOwn(this.attributes, "to") && this.el.innerHTML != null && this.el.innerHTML.length > 0) {
-			throw new WireAttributeError(`Cannot use 'to' if you have HTML content (attributes=${JSON.stringify(this.attributes)})`);
+		const foundSignalAttributes = Object.values(this.attributes).filter((a) => a.type == "signal");
+		if (foundSignalAttributes.length == 0 && Object.hasOwn(this.attributes, "if")) {
+			console.warn(`prefer against using 'if' unless you also reference a signal, found attributes: ${JSON.stringify(this.attributes)}`);
 		}
 
-		// Store HTML content as template
-		if (
-			Object.hasOwn(this.attributes, "for") ||
-			Object.hasOwn(this.attributes, "with") ||
-			(Object.hasOwn(this.attributes, "if") && this.attributes.if.type == "signal")
-		) {
+		// Store HTML content as template if any attribute rerenders
+		if (Object.hasOwn(this.attributes, "for") || Object.hasOwn(this.attributes, "with") || Object.hasOwn(this.attributes, "if")) {
 			this.template = this.el.innerHTML;
 			this.el.innerHTML = "";
 		}
 
-		// Listen to the attribute signal (assuming <= 1)
-		if (signalAttributes.length == 1) {
-			const signal = signalAttributes[0].signal;
-			this.signalUnsubs.push(signal.listen(this.#render.bind(this)));
+		// Subscribe each signal
+		for (const attrName in this.attributes) {
+			if (this.attributes[attrName].type === "signal") {
+				const signal = this.attributes[attrName].signal;
+				this.signalUnsubs.push(signal.listen(this.#render.bind(this)));
+			}
 		}
 
 		this.#render();
@@ -208,7 +204,7 @@ class WireElement {
 
 		// Hydrate template for each item in list
 		if (Object.hasOwn(this.attributes, "for")) {
-			const list = this.attributes.for.signal.get();
+			const list = Wire.controller.evaluateAttribute(this.attributes.for);
 			this.el.innerHTML = list.reduce((acc, item) => {
 				let values = Object.hasOwn(this.attributes, "each") ? { [this.attributes.each.value]: item } : {};
 				return acc + Wire.controller.hydrateTemplate(this.template, values);
@@ -259,7 +255,7 @@ class ComponentElement {
 		this.isInstance = Object.hasOwn(this.attributes, "instance");
 
 		for (const attrName of argAttributeNames) {
-			const allowedTypes = this.isInstance ? ["signal", "literal", "resolvable"] : ["flag"];
+			const allowedTypes = this.isInstance ? ["signal", "literal", "expr"] : ["flag"];
 			const attrValue = this.el.getAttribute(attrName);
 			const realAttrName = attrName.slice(4);
 			this.argAttributes[realAttrName] = parseAttribute(attrName, attrValue, allowedTypes, "<component>");
@@ -435,7 +431,7 @@ class WireController {
 			return attr.signal.get();
 		} else if (attr.type == "literal") {
 			return attr.value;
-		} else if (attr.type == "resolvable") {
+		} else if (attr.type == "expr") {
 			const content = attr.value.slice(2, attr.value.length - 2);
 			return evalWithVariables(content);
 		}
