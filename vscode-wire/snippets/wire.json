@@ -1,0 +1,47 @@
+{
+	"Wire: to (signal)": {
+		"prefix": "wire-to",
+		"body": ["<wire to=\"@${1:signal}\"></wire>"],
+		"description": "Render a signal's value directly"
+	},
+	"Wire: to (expression)": {
+		"prefix": "wire-to-expr",
+		"body": ["<wire with=\"@${1:signal}\" to=\"{{ ${2:expr} }}\"></wire>"],
+		"description": "Render an expression, updating when a signal changes"
+	},
+	"Wire: with (template)": {
+		"prefix": "wire-with",
+		"body": ["<wire with=\"@${1:signal}\">", "\t$0", "</wire>"],
+		"description": "Re-render a template when a signal changes"
+	},
+	"Wire: for (list)": {
+		"prefix": "wire-for",
+		"body": ["<wire for=\"@${1:list}\" each=\"${2:item}\">", "\t$0", "</wire>"],
+		"description": "Render a template per list item"
+	},
+	"Wire: if (conditional)": {
+		"prefix": "wire-if",
+		"body": ["<wire with=\"@${1:signal}\" if=\"{{ ${2:condition} }}\">", "\t$0", "</wire>"],
+		"description": "Conditionally render a template"
+	},
+	"Wire: component (definition)": {
+		"prefix": "wire-component",
+		"body": ["<component name=\"${1:name}\" arg:${2:arg}>", "\t$0", "</component>"],
+		"description": "Define a component template"
+	},
+	"Wire: component (instance)": {
+		"prefix": "wire-instance",
+		"body": ["<component instance name=\"${1:name}\" arg:${2:arg}=\"${3:@signal}\"></component>"],
+		"description": "Instantiate a component"
+	},
+	"Wire: State": {
+		"prefix": "wire-state",
+		"body": ["const ${1:name} = new Wire.State(\"${1}\", ${2:null});"],
+		"description": "Declare a Wire.State signal"
+	},
+	"Wire: Computed": {
+		"prefix": "wire-computed",
+		"body": ["const ${1:name} = new Wire.Computed(\"${1}\", [${2:dep}], (${3:d}) => ${4:d});"],
+		"description": "Declare a Wire.Computed signal"
+	}
+}

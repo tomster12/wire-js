@@ -1,6 +1,6 @@
 # Wire.js
 
-Minimal single-file reactive JS library with no build steps.  
+Minimal single-file no-build reactivity JS lib.  
 
 ## Signals
 

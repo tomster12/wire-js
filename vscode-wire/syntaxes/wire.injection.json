@@ -1,0 +1,41 @@
+{
+	"scopeName": "wire.injection",
+	"injectionSelector": "L:text.html - (comment, source.js, source.css)",
+	"patterns": [
+		{ "include": "#expression" },
+		{ "include": "#signal-reference" },
+		{ "include": "#arg-attribute" }
+	],
+	"repository": {
+		"expression": {
+			"name": "meta.embedded.expression.wire",
+			"begin": "\\{\\{",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.template-expression.begin.wire" }
+			},
+			"end": "\\}\\}",
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.template-expression.end.wire" }
+			},
+			"contentName": "source.js",
+			"patterns": [{ "include": "source.js" }]
+		},
+		"signal-reference": {
+			"comment": "A whole attribute value of the form \"@signalName\"",
+			"match": "(?<=[\"'])(@)([A-Za-z_$][\\w$]*)(?=[\"'])",
+			"captures": {
+				"1": { "name": "punctuation.definition.signal.wire keyword.operator.wire" },
+				"2": { "name": "variable.other.signal.wire" }
+			}
+		},
+		"arg-attribute": {
+			"comment": "Component argument attribute names: arg:title",
+			"match": "(?<=\\s)(arg)(:)([\\w-]+)(?=[\\s=>/])",
+			"captures": {
+				"1": { "name": "entity.other.attribute-name.wire keyword.control.wire" },
+				"2": { "name": "punctuation.separator.namespace.wire" },
+				"3": { "name": "entity.other.attribute-name.localname.wire variable.parameter.wire" }
+			}
+		}
+	}
+}

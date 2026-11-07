@@ -1,0 +1,58 @@
+{
+	"version": 1.1,
+	"tags": [
+		{
+			"name": "wire",
+			"description": "Wire.js reactive element. Renders from signals/expressions. Content attributes `for` and `to` are mutually exclusive.",
+			"attributes": [
+				{
+					"name": "to",
+					"description": "Directly render a value as the element's HTML. Takes a signal (`@name`) or expression (`{{ expr }}`). Cannot be used if the element has HTML content; mutually exclusive with `for`."
+				},
+				{
+					"name": "with",
+					"description": "Re-render the element's HTML template whenever this signal (`@name`) changes. Signal only."
+				},
+				{
+					"name": "for",
+					"description": "Render the element's HTML template once per item of a list. Takes a signal (`@name`) or expression (`{{ expr }}`) yielding an array. Mutually exclusive with `to`."
+				},
+				{
+					"name": "each",
+					"description": "Name of the variable that holds the current item inside a `for` template. Literal only; requires `for`."
+				},
+				{
+					"name": "if",
+					"description": "Only render when truthy. Takes a signal (`@name`) or expression (`{{ expr }}`). Reference a signal (e.g. with `with`) so it re-evaluates."
+				},
+				{ "name": "style", "description": "Inline style applied to the element. Literal only." },
+				{ "name": "class", "description": "CSS classes. Literal only." }
+			]
+		},
+		{
+			"name": "component",
+			"description": "Wire.js component. Without `instance` it defines a template (declared args via `arg:name`); with `instance` it renders that template.",
+			"attributes": [
+				{
+					"name": "name",
+					"description": "Component name. Required. Used to register a template, or to select which template an instance renders."
+				},
+				{
+					"name": "instance",
+					"description": "Marks this element as an instance of the named component instead of a template definition. Flag attribute.",
+					"valueSet": "v"
+				},
+				{
+					"name": "arg:",
+					"description": "Component argument, written `arg:<name>`. On a template definition it is a bare flag declaring an argument (e.g. `arg:title`); on an instance it takes a literal, signal (`@name`) or expression (`{{ expr }}`) value. Use `{{name}}` inside the template to read it."
+				},
+				{ "name": "style", "description": "Inline style applied to the element. Literal only." },
+				{ "name": "class", "description": "CSS classes. Literal only." }
+			]
+		}
+	],
+	"globalAttributes": [],
+	"valueSets": [
+		{ "name": "v", "values": [] }
+	]
+}

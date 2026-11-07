@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Wire.js · Reference and demonstration</title>
+
+		<script src="../../wire.js"></script>
+		<script src="app.js"></script>
+		<link rel="stylesheet" href="index.css" />
+	</head>
+
+	<body>
+		<div class="page">
+			<header class="masthead">
+				<p class="kicker">Reference and demonstration</p>
+				<h1>Wire.js</h1>
+				<p class="standfirst">
+					A single-file reactivity library with no build step. Every demonstration on this page is running Wire.js, and the markup printed beneath each one is read from the
+					page itself rather than copied.
+				</p>
+				<nav class="contents">
+					<a href="#state">State</a>
+					<a href="#computed">Computed</a>
+					<a href="#equality">Equality</a>
+					<a href="#to">to</a>
+					<a href="#with">with</a>
+					<a href="#if">if</a>
+					<a href="#for">for</a>
+					<a href="#components">Components</a>
+					<a href="#poll">Everything together</a>
+					<a href="#lifecycle">Lifecycle</a>
+					<a href="#errors">Errors</a>
+					<a href="#reference">Reference</a>
+				</nav>
+				<p class="note">Signals registered at this moment: <wire to="{{ Object.keys(controller.signalDict).join(', ') }}"></wire></p>
+			</header>
+
+			<!-- ============================================================ 1 -->
+			<section id="state">
+				<h2><span class="num">1</span>State and listeners</h2>
+				<p>
+					A <code>State</code> holds a value. Setting it notifies every listener, and <code>&lt;wire to="@count"&gt;</code> is simply a listener that writes the value into
+					the page. <code>listen()</code> returns a function that removes the listener again.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-state">
+						<div class="row">
+							<button onclick="stateDemo.decrement()">Subtract</button>
+							<strong class="big"><wire to="@count"></wire></strong>
+							<button onclick="stateDemo.increment()">Add</button>
+							<button onclick="stateDemo.reset()">Reset</button>
+						</div>
+						<div class="row">
+							<button onclick="stateDemo.toggleLogging()">
+								<wire to="{{ stateDemo.countLoggingOn.get() ? 'Remove the logging listener' : 'Add the logging listener' }}" with="@countLoggingOn"></wire>
+							</button>
+						</div>
+						<div class="log">
+							<wire for="@countLog" each="line"><div>{{line}}</div></wire>
+						</div>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-state"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class StateDemo {
+	constructor() {
+		this.count = new Wire.State("count", 0);
+		this.countLog = new Wire.State("countLog", []);
+	}
+
+	startLogging() {
+		this.removeLogListener = this.count.listen((value) => {
+			this.countLog.set([`listener received ${value}`, ...this.countLog.get()]);
+		});
+	}
+}
+
+stateDemo.count.set(5);          // notifies listeners
+stateDemo.count.get();           // 5
+stateDemo.removeLogListener();   // listener removed</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 2 -->
+			<section id="computed">
+				<h2><span class="num">2</span>Computed</h2>
+				<p>
+					A <code>Computed</code> derives a value from other signals and recalculates whenever any of them changes. Computeds may depend on other Computeds, and may return
+					anything, including markup.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-computed">
+						<div class="split">
+							<div>
+								<label class="field">
+									<span>Width <b><wire to="@rectangleWidth"></wire></b></span>
+									<input type="range" min="1" max="20" value="8" oninput="computedDemo.setWidth(+this.value)" />
+								</label>
+								<label class="field">
+									<span>Height <b><wire to="@rectangleHeight"></wire></b></span>
+									<input type="range" min="1" max="20" value="5" oninput="computedDemo.setHeight(+this.value)" />
+								</label>
+								<dl class="facts">
+									<dt>Area</dt>
+									<dd><wire to="@rectangleArea"></wire></dd>
+									<dt>Perimeter</dt>
+									<dd><wire to="@rectanglePerimeter"></wire></dd>
+								</dl>
+								<p class="result"><wire to="@rectangleDescription"></wire></p>
+							</div>
+							<div class="figure-box"><wire to="@rectangleSvg"></wire></div>
+						</div>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-computed"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class ComputedDemo {
+	constructor() {
+		this.rectangleWidth = new Wire.State("rectangleWidth", 8);
+		this.rectangleHeight = new Wire.State("rectangleHeight", 5);
+
+		this.rectangleArea = new Wire.Computed(
+			"rectangleArea",
+			[this.rectangleWidth, this.rectangleHeight],
+			(width, height) => width * height,
+		);
+
+		this.rectangleDescription = new Wire.Computed(
+			"rectangleDescription",
+			[this.rectangleShape, this.rectangleArea],
+			(shape, area) => `A ${shape} rectangle covering ${area} square units.`,
+		);
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 3 -->
+			<section id="equality">
+				<h2><span class="num">3</span>Shallow equality</h2>
+				<p>
+					<code>set()</code> compares the new value with the old one and stays silent when they are equal: the same reference, or an object or array whose entries are all
+					identical. Replacing a value with an equal copy costs nothing, but mutating a value in place and setting the same reference is invisible to Wire.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-equality">
+						<div class="row">
+							<button onclick="equalityDemo.setEqualCopy()">Set an equal copy</button>
+							<button onclick="equalityDemo.setChangedCopy()">Set a changed copy</button>
+							<button onclick="equalityDemo.mutateInPlace()">Mutate in place</button>
+						</div>
+						<dl class="facts">
+							<dt>Value shown on the page</dt>
+							<dd><wire to="{{ JSON.stringify(equalityDemo.point.get()) }}" with="@point"></wire></dd>
+							<dt>Notifications received</dt>
+							<dd><wire to="@pointNotifications"></wire></dd>
+							<dt>Value actually held (re-read every second)</dt>
+							<dd><wire to="{{ JSON.stringify(equalityDemo.point.get()) }}" with="@clock"></wire></dd>
+						</dl>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-equality"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class EqualityDemo {
+	constructor() {
+		this.point = new Wire.State("point", { x: 1, y: 2 });
+	}
+}
+
+point.set({ ...point.get() });         // equal copy: no notification
+point.set({ ...point.get(), x: 9 });   // different: notifies
+
+const current = point.get();
+current.x += 1;
+point.set(current);                    // same reference: no notification</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 4 -->
+			<section id="to">
+				<h2><span class="num">4</span>to: write a value into the element</h2>
+				<p>
+					<code>to</code> takes a signal or an expression and sets it as the element's HTML. An expression only re-runs when a signal attribute on the same element
+					changes, so pair it with <code>with</code>. The element may not have child content. <code>style</code> is applied as written.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-to">
+						<dl class="facts">
+							<dt>A signal</dt>
+							<dd><wire style="font-weight: 700; color: #a8351b" to="@clockText"></wire></dd>
+							<dt>An expression, driven by a signal</dt>
+							<dd><wire to="{{ toDemo.describeUptime() }}" with="@clock"></wire></dd>
+							<dt>An expression with no signal: evaluated once</dt>
+							<dd><wire to="{{ 6 * 7 }}"></wire></dd>
+						</dl>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-to"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class ToDemo {
+	constructor() {
+		this.clock = new Wire.State("clock", Date.now());
+		this.clockText = new Wire.Computed("clockText", [this.clock], (ms) => new Date(ms).toLocaleTimeString());
+
+		setInterval(() => this.clock.set(Date.now()), 1000);
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 5 -->
+			<section id="with">
+				<h2><span class="num">5</span>with: re-render a template</h2>
+				<p>
+					Anything written inside a <code>with</code> element is a template. Each <code>{{ }}</code> holds a JavaScript expression with access to every global, and the whole
+					template is evaluated again whenever the signal changes. The slider sits outside the element so it keeps focus while the text re-renders.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-with">
+						<label class="field">
+							<span>Temperature</span>
+							<input type="range" min="-20" max="40" value="18" oninput="withDemo.temperature.set(+this.value)" />
+						</label>
+						<p class="result">
+							<wire with="@temperature">
+								<strong>{{ withDemo.temperature.get() }} °C</strong> is {{ (withDemo.temperature.get() * 9 / 5 + 32).toFixed(1) }} °F. {{ withDemo.describeTemperature(withDemo.temperature.get()) }}
+							</wire>
+						</p>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-with"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class WithDemo {
+	constructor() {
+		this.temperature = new Wire.State("temperature", 18);
+	}
+
+	describeTemperature(celsius) {
+		if (celsius &lt;= 0) return "Freezing.";
+		if (celsius &lt; 15) return "Cold.";
+		if (celsius &lt; 26) return "Mild.";
+		return "Hot.";
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 6 -->
+			<section id="if">
+				<h2><span class="num">6</span>if: show or hide</h2>
+				<p>
+					<code>if</code> takes a signal or an expression. When it is falsy the element is emptied and hidden; when it turns truthy the content comes back. It needs a
+					content attribute (<code>to</code>, <code>with</code> or <code>for</code>) to say what to show. Signals are global, so these demos also read <code>count</code> from
+					section 1.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-if">
+						<div class="row">
+							<button onclick="ifDemo.toggleBanner()">Toggle the banner</button>
+							<button onclick="stateDemo.increment()">Add to count</button>
+							<span class="muted">count is <wire to="@count"></wire></span>
+						</div>
+						<wire class="banner" if="@bannerVisible" to="@bannerText"></wire>
+						<wire if="{{ stateDemo.count.get() % 2 == 0 }}" with="@count">
+							<p class="result">The count is <strong>even</strong>.</p>
+						</wire>
+						<wire if="{{ stateDemo.count.get() % 2 == 1 }}" with="@count">
+							<p class="result">The count is <strong>odd</strong>.</p>
+						</wire>
+						<wire if="{{ stateDemo.count.get() > 4 }}" with="@count">
+							<p class="result">The count has passed four.</p>
+						</wire>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-if"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class IfDemo {
+	constructor() {
+		this.bannerVisible = new Wire.State("bannerVisible", true);
+		this.bannerText = new Wire.State("bannerText", "I only exist while bannerVisible is truthy.");
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 7 -->
+			<section id="for">
+				<h2><span class="num">7</span>for and each: repeat a template</h2>
+				<p>
+					<code>for</code> repeats the template for every item of an array, and <code>each</code> names the variable that holds the current item. The array can come from a
+					signal or from an expression, and <code>each</code> is optional when you only need to repeat something.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-for">
+						<h3>From a signal</h3>
+						<div class="row">
+							<button onclick="forDemo.sortPlanetsBy('name')">Sort by name</button>
+							<button onclick="forDemo.sortPlanetsBy('moons')">Sort by moons</button>
+							<button onclick="forDemo.sortPlanetsBy('diameterKm')">Sort by diameter</button>
+						</div>
+						<div class="ruled">
+							<wire for="@planets" each="planet">
+								<div class="ruled-row">
+									<span>{{planet.name}}</span>
+									<span>{{planet.moons}} {{ planet.moons == 1 ? 'moon' : 'moons' }}</span>
+									<span>{{ planet.diameterKm.toLocaleString() }} km</span>
+								</div>
+							</wire>
+						</div>
+
+						<h3>From an expression, re-run when another signal changes</h3>
+						<input class="text-input" type="search" placeholder="Filter fruit…" oninput="forDemo.filterText.set(this.value)" />
+						<div class="tags">
+							<wire for="{{ forDemo.matchingFruits() }}" with="@filterText" each="fruit">
+								<span class="tag">{{fruit}}</span>
+							</wire>
+						</div>
+
+						<h3>Without each: just repeat</h3>
+						<label class="field inline">
+							<span>Rating <b><wire to="@stars"></wire></b></span>
+							<input type="range" min="0" max="5" value="3" oninput="forDemo.stars.set(+this.value)" />
+						</label>
+						<p class="rating">
+							<wire for="{{ Array(forDemo.stars.get()).fill(0) }}" with="@stars">★</wire>
+							<wire class="faded" for="{{ Array(5 - forDemo.stars.get()).fill(0) }}" with="@stars">★</wire>
+						</p>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-for"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class ForDemo {
+	constructor() {
+		this.planets = new Wire.State("planets", [
+			{ name: "Mercury", moons: 0, diameterKm: 4879 },
+			/* ... */
+		]);
+		this.filterText = new Wire.State("filterText", "");
+		this.stars = new Wire.State("stars", 3);
+	}
+
+	matchingFruits() {
+		const query = this.filterText.get().toLowerCase();
+		return this.fruits.filter((fruit) => fruit.includes(query));
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 8 -->
+			<section id="components">
+				<h2><span class="num">8</span>Components</h2>
+				<p>
+					A <code>&lt;component&gt;</code> without <code>instance</code> defines a template and declares its arguments with <code>arg:name</code>. With
+					<code>instance</code> it renders that template, and each argument may be literal text, a signal, or an expression. Arguments you leave out arrive as
+					<code>null</code>. A component may contain other components. An expression argument is evaluated when the instance renders and is not reactive on its own; pass a
+					signal when you need it to follow changes.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-components">
+						<component name="avatar" arg:name>
+							<span class="avatar">{{ componentsDemo.initialsOf(name) }}</span>
+						</component>
+
+						<component name="profile-card" arg:name arg:role arg:note>
+							<div class="profile">
+								<component instance name="avatar" arg:name="{{ name || 'Anonymous' }}"></component>
+								<div>
+									<div class="profile-name">{{name}}</div>
+									<div class="muted">{{role}}</div>
+									<div class="profile-note">{{ note ?? 'No note supplied (the argument arrived as null)' }}</div>
+								</div>
+							</div>
+						</component>
+
+						<label class="field inline">
+							<span>Name used by the third card</span>
+							<input class="text-input" type="text" value="Ada Lovelace" oninput="componentsDemo.username.set(this.value)" />
+						</label>
+
+						<div class="profiles">
+							<component instance name="profile-card" arg:name="Grace Hopper" arg:role="Literal arguments" arg:note="Every value written directly in the markup."></component>
+							<component instance name="profile-card" arg:name="Linus Torvalds" arg:role="{{ componentsDemo.roleOfTheDay() }}" arg:note="Role from an expression, evaluated once."></component>
+							<component instance name="profile-card" arg:name="@username" arg:role="Signal argument"></component>
+						</div>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-components"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class ComponentsDemo {
+	constructor() {
+		this.username = new Wire.State("username", "Ada Lovelace");
+	}
+
+	initialsOf(fullName) {
+		return fullName.split(" ").map((word) => word[0]).join("");
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 9 -->
+			<section id="poll">
+				<h2><span class="num">9</span>Everything together</h2>
+				<p>
+					A <code>for</code> loop renders a component for every row of a Computed, each row contains a nested <code>&lt;wire&gt;</code> bound to another signal, and an
+					<code>if</code> reveals a summary once there is data. One rule matters when nesting: expressions inside a template are resolved while the template is hydrated, so
+					by the time a nested element mounts they are already plain text. Pass loop values down as <code>arg:</code> literals, and keep nested <code>&lt;wire&gt;</code>
+					attributes to signals.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-poll">
+						<component name="poll-row" arg:id arg:label arg:votes arg:percent arg:leader>
+							<div class="poll-row {{ leader == 'true' ? 'leader' : '' }}">
+								<button onclick="pollDemo.castVote('{{id}}')">{{label}}</button>
+								<div class="poll-bar"><div class="poll-fill" style="width: {{percent}}%"></div></div>
+								<span class="poll-count">{{votes}} <span class="muted">of <wire to="@pollTotal"></wire></span></span>
+							</div>
+						</component>
+
+						<h3 class="poll-question">What should the next release prioritise?</h3>
+						<wire for="@pollRows" each="row">
+							<component instance name="poll-row" arg:id="{{row.id}}" arg:label="{{row.label}}" arg:votes="{{row.votes}}" arg:percent="{{row.percent}}" arg:leader="{{row.isLeader}}"></component>
+						</wire>
+						<wire class="result" if="{{ pollDemo.pollTotal.get() > 0 }}" to="@pollSummary"></wire>
+						<div class="row">
+							<button onclick="pollDemo.castRandomVotes(25)">Add 25 random votes</button>
+							<button onclick="pollDemo.reset()">Reset</button>
+						</div>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-poll"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class PollDemo {
+	constructor() {
+		this.pollOptions = new Wire.State("pollOptions", [
+			{ id: "performance", label: "Performance", votes: 12 },
+			/* ... */
+		]);
+
+		this.pollTotal = new Wire.Computed("pollTotal", [this.pollOptions], (options) =>
+			options.reduce((total, option) => total + option.votes, 0),
+		);
+
+		this.pollRows = new Wire.Computed("pollRows", [this.pollOptions], (options) => {
+			/* adds percent and isLeader to each option */
+		});
+	}
+
+	castVote(optionId) {
+		this.pollOptions.set(this.pollOptions.get().map((option) =>
+			option.id === optionId ? { ...option, votes: option.votes + 1 } : option,
+		));
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 10 -->
+			<section id="lifecycle">
+				<h2><span class="num">10</span>Lifecycle</h2>
+				<p>
+					Wire watches the document for removed nodes and unsubscribes any mounted element that disappears, so rendering a list or toggling a section never leaves dead
+					listeners behind. Toggle the panel below and watch the number of listeners on <code>clockText</code>; it updates on the next tick of the clock.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-lifecycle">
+						<div class="row">
+							<button onclick="lifecycleDemo.togglePanel()">
+								<wire to="{{ lifecycleDemo.panelMounted.get() ? 'Remove the panel' : 'Add the panel' }}" with="@panelMounted"></wire>
+							</button>
+							<span class="muted">Listeners on clockText: <strong><wire to="{{ lifecycleDemo.observedListenerCount() }}" with="@clock"></wire></strong></span>
+						</div>
+						<wire for="{{ lifecycleDemo.panelMounted.get() ? [1] : [] }}" with="@panelMounted">
+							<div class="panel-demo">This panel contains a wire subscribed to clockText: <wire to="@clockText"></wire></div>
+						</wire>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-lifecycle"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class LifecycleDemo {
+	constructor(observedSignal) {
+		this.observedSignal = observedSignal;   // toDemo.clockText
+		this.panelMounted = new Wire.State("panelMounted", true);
+	}
+
+	observedListenerCount() {
+		return this.observedSignal.listeners.length;
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 11 -->
+			<section id="errors">
+				<h2><span class="num">11</span>Validation</h2>
+				<p>
+					Wire checks markup when an element mounts and throws a specific error for anything it cannot honour. Each case below builds the element, hands it to the
+					controller, and prints exactly what was thrown. The elements are never inserted into the page.
+				</p>
+				<div class="demo">
+					<div class="demo-live" id="live-errors">
+						<wire for="@errorCaseRows" each="errorCase">
+							<div class="case">
+								<div class="case-head">
+									<span class="case-title">{{errorCase.title}}</span>
+									<button onclick="validationDemo.runCase({{errorCase.index}})">Run</button>
+								</div>
+								<code class="case-code">{{errorCase.code}}</code>
+								<div class="case-result {{ errorCase.hasRun ? 'ran' : '' }}">{{errorCase.result}}</div>
+							</div>
+						</wire>
+					</div>
+				</div>
+				<div class="sources">
+					<figure><figcaption>HTML</figcaption><pre data-source-of="live-errors"></pre></figure>
+					<figure>
+						<figcaption>JavaScript</figcaption>
+						<pre>
+class ValidationDemo {
+	runCase(index) {
+		try {
+			this.cases[index].run();
+		} catch (error) {
+			/* error.constructor.name and error.message are displayed */
+		}
+	}
+}</pre
+						>
+					</figure>
+				</div>
+			</section>
+
+			<!-- ============================================================ 12 -->
+			<section id="reference">
+				<h2><span class="num">12</span>Reference</h2>
+				<p>Attribute values come in four kinds: a <code>@signal</code>, a <code>{{ expression }}</code>, a plain literal, or a flag with no value.</p>
+
+				<table class="reference">
+					<thead>
+						<tr><th>Element</th><th>Attribute</th><th>Accepts</th><th>Effect</th></tr>
+					</thead>
+					<tbody>
+						<tr><td rowspan="7"><code>&lt;wire&gt;</code></td><td><code>to</code></td><td>signal, expression</td><td>Sets the element's HTML. No child content allowed; exclusive with <code>for</code>.</td></tr>
+						<tr><td><code>with</code></td><td>signal</td><td>Re-renders the child template when the signal changes.</td></tr>
+						<tr><td><code>for</code></td><td>signal, expression</td><td>Repeats the child template per array item; exclusive with <code>to</code>.</td></tr>
+						<tr><td><code>each</code></td><td>literal</td><td>Names the loop variable. Requires <code>for</code>.</td></tr>
+						<tr><td><code>if</code></td><td>signal, expression</td><td>Hides and empties the element while falsy.</td></tr>
+						<tr><td><code>style</code></td><td>literal</td><td>Inline style applied on every render.</td></tr>
+						<tr><td><code>class</code></td><td>literal</td><td>Passed through to the element.</td></tr>
+						<tr><td rowspan="5"><code>&lt;component&gt;</code></td><td><code>name</code></td><td>literal</td><td>Required. Names the template, or selects the template to render.</td></tr>
+						<tr><td><code>instance</code></td><td>flag</td><td>Renders the named template instead of defining it.</td></tr>
+						<tr><td><code>arg:NAME</code></td><td>flag on a definition; signal, expression or literal on an instance</td><td>Declares an argument, or supplies its value.</td></tr>
+						<tr><td><code>style</code></td><td>literal</td><td>Permitted on the element.</td></tr>
+						<tr><td><code>class</code></td><td>literal</td><td>Permitted on the element.</td></tr>
+					</tbody>
+				</table>
+
+				<h3>Behaviours worth knowing</h3>
+				<ul class="rules">
+					<li>Signal names are global and unique. Registering a name twice throws.</li>
+					<li>Signals notify only when the new value is not shallow-equal to the old one.</li>
+					<li>Inside templates, expressions can use loop variables, component arguments, and any global.</li>
+					<li>Templates are read back through <code>innerHTML</code>, so avoid <code>&lt;</code>, <code>&gt;</code>, <code>&amp;</code> and double quotes inside text expressions; put that logic in a function. Attribute expressions are read with <code>getAttribute</code> and are unaffected.</li>
+					<li>Expressions inside a template resolve when it hydrates, so nested elements receive plain text. Nested <code>&lt;wire&gt;</code> attributes should be signals.</li>
+					<li>An instance argument cannot be an empty value, and a literal beginning with <code>@</code> is read as a signal.</li>
+					<li>Elements removed from the document are unsubscribed automatically.</li>
+				</ul>
+			</section>
+
+			<footer class="colophon">Wire.js · the markup beside each demonstration is generated from this page by <code>fillSourceBlocks()</code> in app.js.</footer>
+		</div>
+
+		<script>
+			fillSourceBlocks();
+		</script>
+	</body>
+</html>
