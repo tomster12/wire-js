@@ -21,98 +21,53 @@ function fillSourceBlocks() {
 
 //#endregion
 
-//#region 1. State and listeners
+//#region 1. Signals
 
-class StateDemo {
+class SignalsDemo {
 	constructor() {
 		this.count = new Wire.State("count", 0);
-		this.countLog = new Wire.State("countLog", []);
-		this.countLoggingOn = new Wire.State("countLoggingOn", false);
-		this.removeLogListener = null;
+		this.double = new Wire.Computed("double", [this.count], (value) => value * 2);
+		this.quadruple = new Wire.Computed("quadruple", [this.double], (value) => value * 2);
+		this.log = new Wire.State("log", []);
+		this.loggingOn = new Wire.State("loggingOn", false);
+		this.stopLogging = null;
 
 		this.startLogging();
 	}
 
-	increment() {
-		this.count.set(this.count.get() + 1);
-	}
-
-	decrement() {
-		this.count.set(this.count.get() - 1);
-	}
-
-	reset() {
-		this.count.set(0);
+	change(amount) {
+		this.count.update((value) => value + amount);
 	}
 
 	startLogging() {
-		this.removeLogListener = this.count.listen((value) => {
-			this.countLog.set([`listener received ${value}`, ...this.countLog.get()].slice(0, 4));
-		});
-		this.countLoggingOn.set(true);
-	}
-
-	stopLogging() {
-		// listen() returns the function that removes the listener again
-		this.removeLogListener();
-		this.removeLogListener = null;
-		this.countLoggingOn.set(false);
+		this.stopLogging = this.count.listen((value) => this.log.update((lines) => [`listener received ${value}`, ...lines].slice(0, 3)));
+		this.loggingOn.set(true);
 	}
 
 	toggleLogging() {
-		if (this.removeLogListener) this.stopLogging();
-		else this.startLogging();
+		if (this.stopLogging) {
+			this.stopLogging();
+			this.stopLogging = null;
+			this.loggingOn.set(false);
+		} else {
+			this.startLogging();
+		}
 	}
 }
 
 //#endregion
 
-//#region 2. Computed
-
-class ComputedDemo {
-	constructor() {
-		this.rectangleWidth = new Wire.State("rectangleWidth", 8);
-		this.rectangleHeight = new Wire.State("rectangleHeight", 5);
-
-		const dimensions = [this.rectangleWidth, this.rectangleHeight];
-		this.rectangleArea = new Wire.Computed("rectangleArea", dimensions, (width, height) => width * height);
-		this.rectanglePerimeter = new Wire.Computed("rectanglePerimeter", dimensions, (width, height) => 2 * (width + height));
-		this.rectangleShape = new Wire.Computed("rectangleShape", dimensions, (width, height) => {
-			if (width === height) return "square";
-			return width > height ? "landscape" : "portrait";
-		});
-
-		this.rectangleDescription = new Wire.Computed(
-			"rectangleDescription",
-			[this.rectangleShape, this.rectangleArea],
-			(shape, area) => `A ${shape} rectangle covering ${area} square units.`,
-		);
-
-		this.rectangleSvg = new Wire.Computed("rectangleSvg", dimensions, (width, height) => {
-			const scale = 12;
-			return `<svg width="${20 * scale}" height="${20 * scale}" viewBox="0 0 20 20"><rect class="shape" x="0.5" y="0.5" width="${width - 1}" height="${height - 1}"/></svg>`;
-		});
-	}
-
-	setWidth(value) {
-		this.rectangleWidth.set(value);
-	}
-
-	setHeight(value) {
-		this.rectangleHeight.set(value);
-	}
-}
-
-//#endregion
-
-//#region 3. Shallow equality
+//#region 2. Equality
 
 class EqualityDemo {
 	constructor() {
 		this.point = new Wire.State("point", { x: 1, y: 2 });
 		this.pointNotifications = new Wire.State("pointNotifications", 0);
+		this.number = new Wire.State("number", 5);
+		this.numberNotifications = new Wire.State("numberNotifications", 0);
 
-		this.point.listen(() => this.pointNotifications.set(this.pointNotifications.get() + 1));
+		this.point.listen(() => this.pointNotifications.update((total) => total + 1));
+		this.number.listen(() => this.numberNotifications.update((total) => total + 1));
 	}
 
 	setEqualCopy() {
@@ -120,226 +75,247 @@ class EqualityDemo {
 	}
 
 	setChangedCopy() {
-		this.point.set({ ...this.point.get(), x: this.point.get().x + 1 });
+		const point = this.point.get();
+		this.point.set({ ...point, x: point.x + 1 });
 	}
 
-	mutateInPlace() {
-		const current = this.point.get();
-		current.x += 1;
-		this.point.set(current);
+	mutateAndSetSameObject() {
+		const point = this.point.get();
+		point.x += 1;
+		this.point.set(point);
+	}
+
+	setSameNumber() {
+		this.number.set(5);
+	}
+
+	setNewNumber() {
+		this.number.update((value) => value + 1);
 	}
 }
 
 //#endregion
 
-//#region 4. to
+//#region 3. Batching and flush
 
-class ToDemo {
+class BatchDemo {
 	constructor() {
-		this.pageLoadedAt = Date.now();
-		this.clock = new Wire.State("clock", this.pageLoadedAt);
-		this.clockText = new Wire.Computed("clockText", [this.clock], (milliseconds) => new Date(milliseconds).toLocaleTimeString());
+		this.computeCalls = 0;
+		this.value = new Wire.State("batchValue", 0);
+		this.squared = new Wire.Computed("batchSquared", [this.value], (value) => {
+			this.computeCalls++;
+			return value * value;
+		});
+		this.report = new Wire.State("flushReport", "Not run yet");
+	}
+
+	setFiveTimes() {
+		for (let i = 0; i < 5; i++) this.value.update((value) => value + 1);
+	}
+
+	readDomAfterSet() {
+		const target = document.getElementById("batch-value");
+		this.value.update((value) => value + 1);
+		const before = target.textContent;
+		Wire.flush();
+		this.report.set(`DOM before flush: ${before}, after flush: ${target.textContent}`);
+	}
+}
+
+//#endregion
+
+//#region 4. Update cycles
+
+class CycleDemo {
+	constructor() {
+		this.source = new Wire.State("loopSource", 0);
+		this.mirror = new Wire.Computed("loopMirror", [this.source], (value) => value);
+		this.result = new Wire.State("cycleResult", "Not run yet");
+	}
+
+	run() {
+		const stop = this.mirror.listen((value) => this.source.set(value + 1));
+		try {
+			this.source.set(this.source.get() + 1);
+			Wire.flush();
+			this.result.set("No error was thrown");
+		} catch (error) {
+			this.result.set(`${error.constructor.name}: ${error.message}`);
+		} finally {
+			stop();
+		}
+	}
+}
+
+//#endregion
+
+//#region 5. Escaping
+
+class EscapingDemo {
+	constructor() {
+		this.samples = new Wire.State("samples", [
+			{ index: 0, label: "markup", text: "<b>bold?</b> <script>alert(1)</script>" },
+			{ index: 1, label: "template syntax", text: "{{ 1 + 1 }} and {{{ 1 + 1 }}}" },
+			{ index: 2, label: "attribute syntax", text: "@{ 1 + 1 } and @count" },
+			{ index: 3, label: "entities", text: "Fish &amp; chips &lt;3" },
+		]);
+		this.userText = new Wire.State("userText", this.samples.get()[0].text);
+		this.trustedMarkup = "<b>bold</b> and <i>italic</i>, built by our own code";
+	}
+
+	pick(index) {
+		this.userText.set(this.samples.get()[index].text);
+	}
+}
+
+//#endregion
+
+//#region 6. Expressions
+
+class ExpressionsDemo {
+	constructor() {
+		this.a = new Wire.State("a", 2);
+		this.b = new Wire.State("b", 3);
+		this.loadedAt = new Date().toLocaleTimeString();
+	}
+}
+
+//#endregion
+
+//#region 7. Conditions
+
+class ConditionDemo {
+	constructor() {
+		this.score = new Wire.State("score", 50);
+		this.flag = new Wire.State("flag", true);
+	}
+}
+
+//#endregion
+
+//#region 8. Lists
+
+class ListDemo {
+	constructor() {
+		this.todos = new Wire.State("todos", [
+			{ id: 1, title: "Write the docs", done: true, tags: ["docs", "writing"] },
+			{ id: 2, title: "Ship it", done: false, tags: ["release"] },
+			{ id: 3, title: "<b>not bold</b> {{ 1 + 1 }} @{ 1 + 1 }", done: false, tags: [] },
+		]);
+		this.stars = new Wire.State("stars", 3);
+	}
+
+	toggle(id) {
+		this.todos.set(this.todos.get().map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo)));
+	}
+
+	sortBy(key) {
+		const compare = (a, b) => (typeof a[key] === "string" ? a[key].localeCompare(b[key]) : Number(a[key]) - Number(b[key]));
+		this.todos.set([...this.todos.get()].sort(compare));
+	}
+
+	mutateInPlace() {
+		const todos = this.todos.get();
+		todos[0].done = !todos[0].done;
+		this.todos.set(todos);
+	}
+}
+
+//#endregion
+
+//#region 9. Components
+
+class ComponentsDemo {
+	constructor() {
+		this.userName = new Wire.State("userName", "Ada");
+	}
+
+	rename() {
+		this.userName.set(this.userName.get() === "Ada" ? "Grace" : "Ada");
+	}
+}
+
+//#endregion
+
+//#region 10. Re-rendering and focus
+
+class FocusDemo {
+	constructor() {
+		this.clock = new Wire.State("focusClock", Date.now());
+		this.items = new Wire.State("focusItems", [{ name: "unchanged output" }]);
+		this.sameElement = new Wire.State("sameElement", "waiting for the first tick");
+		this.firstElement = null;
+
+		setInterval(() => {
+			this.clock.set(Date.now());
+			this.checkElement();
+		}, 1000);
+	}
+
+	clockText() {
+		return new Date(this.clock.get()).toLocaleTimeString();
+	}
+
+	checkElement() {
+		const element = document.querySelector("#live-focus .stable-item");
+		if (!element) return;
+		if (!this.firstElement) this.firstElement = element;
+		this.sameElement.set(this.firstElement === element ? "yes, the same element as at the first tick" : "no, it was rebuilt");
+	}
+
+	setSameObject() {
+		this.items.set(this.items.get());
+	}
+}
+
+//#endregion
+
+//#region 11. Lifecycle
+
+class LifecycleDemo {
+	constructor() {
+		this.clock = new Wire.State("lifeClock", Date.now());
+		this.clockText = new Wire.Computed("lifeClockText", [this.clock], (milliseconds) => new Date(milliseconds).toLocaleTimeString());
+		this.panelMounted = new Wire.State("panelMounted", true);
 
 		setInterval(() => this.clock.set(Date.now()), 1000);
 	}
 
-	describeUptime() {
-		const seconds = Math.floor((this.clock.get() - this.pageLoadedAt) / 1000);
-		return `${seconds} seconds since the page loaded`;
+	toggle() {
+		this.panelMounted.update((mounted) => !mounted);
 	}
 }
 
 //#endregion
 
-//#region 5. with
-
-class WithDemo {
-	constructor() {
-		this.temperature = new Wire.State("temperature", 18);
-	}
-
-	describeTemperature(celsius) {
-		if (celsius <= 0) return "Freezing.";
-		if (celsius < 15) return "Cold.";
-		if (celsius < 26) return "Mild.";
-		return "Hot.";
-	}
-}
-
-//#endregion
-
-//#region 6. if
-
-class IfDemo {
-	constructor() {
-		this.bannerVisible = new Wire.State("bannerVisible", true);
-		this.bannerText = new Wire.State("bannerText", "I only exist while bannerVisible is truthy.");
-	}
-
-	toggleBanner() {
-		this.bannerVisible.set(!this.bannerVisible.get());
-	}
-}
-
-//#endregion
-
-//#region 7. for and each
-
-class ForDemo {
-	constructor() {
-		this.planets = new Wire.State("planets", [
-			{ name: "Mercury", moons: 0, diameterKm: 4879 },
-			{ name: "Venus", moons: 0, diameterKm: 12104 },
-			{ name: "Earth", moons: 1, diameterKm: 12742 },
-			{ name: "Mars", moons: 2, diameterKm: 6779 },
-			{ name: "Jupiter", moons: 95, diameterKm: 139820 },
-			{ name: "Saturn", moons: 146, diameterKm: 116460 },
-		]);
-
-		this.fruits = ["apple", "apricot", "banana", "blackberry", "cherry", "date", "fig", "grape", "lemon", "lime", "mango", "peach", "pear", "plum"];
-		this.filterText = new Wire.State("filterText", "");
-		this.stars = new Wire.State("stars", 3);
-	}
-
-	sortPlanetsBy(key) {
-		const compare = (a, b) => (typeof a[key] === "string" ? a[key].localeCompare(b[key]) : b[key] - a[key]);
-		this.planets.set([...this.planets.get()].sort(compare));
-	}
-
-	matchingFruits() {
-		const query = this.filterText.get().toLowerCase();
-		return this.fruits.filter((fruit) => fruit.includes(query));
-	}
-}
-
-//#endregion
-
-//#region 8. Components
-
-class ComponentsDemo {
-	constructor() {
-		this.username = new Wire.State("username", "Ada Lovelace");
-	}
-
-	initialsOf(fullName) {
-		return fullName
-			.split(" ")
-			.filter((word) => word.length > 0)
-			.map((word) => word[0].toUpperCase())
-			.slice(0, 2)
-			.join("");
-	}
-
-	roleOfTheDay() {
-		return ["Editor", "Reviewer", "Maintainer"][new Date().getDay() % 3];
-	}
-}
-
-//#endregion
-
-//#region 9. A poll: everything together
-
-class PollDemo {
-	constructor() {
-		this.pollOptions = new Wire.State("pollOptions", [
-			{ id: "performance", label: "Performance", votes: 12 },
-			{ id: "documentation", label: "Documentation", votes: 7 },
-			{ id: "accessibility", label: "Accessibility", votes: 9 },
-			{ id: "features", label: "New features", votes: 4 },
-		]);
-
-		this.pollTotal = new Wire.Computed("pollTotal", [this.pollOptions], (options) => this.#sumVotes(options));
-
-		this.pollRows = new Wire.Computed("pollRows", [this.pollOptions], (options) => {
-			const total = this.#sumVotes(options);
-			const leaderVotes = Math.max(...options.map((option) => option.votes));
-			return options.map((option) => ({
-				...option,
-				percent: total ? Math.round((option.votes / total) * 100) : 0,
-				isLeader: total > 0 && option.votes === leaderVotes,
-			}));
-		});
-
-		this.pollSummary = new Wire.Computed("pollSummary", [this.pollRows], (rows) => {
-			const leader = rows.find((row) => row.isLeader);
-			return leader ? `${leader.label} leads with ${leader.percent}% of ${this.#sumVotes(rows)} votes.` : "";
-		});
-	}
-
-	#sumVotes(options) {
-		return options.reduce((total, option) => total + option.votes, 0);
-	}
-
-	castVote(optionId) {
-		this.pollOptions.set(this.pollOptions.get().map((option) => (option.id === optionId ? { ...option, votes: option.votes + 1 } : option)));
-	}
-
-	castRandomVotes(amount) {
-		let options = this.pollOptions.get();
-		for (let i = 0; i < amount; i++) {
-			const chosen = options[Math.floor(Math.random() * options.length)];
-			options = options.map((option) => (option === chosen ? { ...option, votes: option.votes + 1 } : option));
-		}
-		this.pollOptions.set(options);
-	}
-
-	reset() {
-		this.pollOptions.set(this.pollOptions.get().map((option) => ({ ...option, votes: 0 })));
-	}
-}
-
-//#endregion
-
-//#region 10. Lifecycle
-
-class LifecycleDemo {
-	constructor(observedSignal) {
-		this.observedSignal = observedSignal;
-		this.panelMounted = new Wire.State("panelMounted", true);
-	}
-
-	togglePanel() {
-		this.panelMounted.set(!this.panelMounted.get());
-	}
-
-	observedListenerCount() {
-		return this.observedSignal.listeners.length;
-	}
-}
-
-//#endregion
-
-//#region 11. Validation errors
+//#region 12. Validation errors
 
 class ValidationDemo {
 	constructor() {
 		this.scratch = new Wire.State("scratch", 0);
-		this.errorResults = new Wire.State("errorResults", {});
 
-		this.cases = [
+		const cases = [
 			this.#markupCase("Attribute that does not exist", '<wire banana="1"></wire>'),
 			this.#markupCase("Wrong value type for an attribute", '<wire with="plain text"></wire>'),
 			this.#markupCase("Content attributes that exclude each other", '<wire for="@scratch" to="@scratch"></wire>'),
 			this.#markupCase("each without for", '<wire each="item" with="@scratch"></wire>'),
 			this.#markupCase("to on an element that has content", '<wire to="@scratch">hello</wire>'),
-			this.#markupCase("Expression that is never closed", '<wire to="{{ 1 + 1"></wire>'),
+			this.#markupCase("to with an expression", '<wire to="@{ 1 + 1 }"></wire>'),
+			this.#markupCase("Expression that is never closed", '<wire if="@{ 1 + 1"></wire>'),
+			this.#markupCase("Template braces in an attribute", '<wire if="{{ true }}"></wire>'),
 			this.#markupCase("Signal that was never registered", '<wire to="@ghost"></wire>'),
 			{ title: "Signal name registered twice", code: 'new Wire.State("scratch", 0)', run: () => new Wire.State("scratch", 0) },
+			this.#markupCase("else without a preceding if", "<wire else></wire>"),
 			this.#markupCase("Component instance without a name", "<component instance></component>"),
 			this.#markupCase("Component that was never defined", '<component instance name="nope"></component>'),
-			this.#markupCase("Instance argument with no value", '<component instance name="avatar" arg:name></component>'),
+			this.#markupCase("Instance argument with no value", '<component instance name="card" arg:title></component>'),
 			this.#markupCase("Template with an unclosed expression", '<wire with="@scratch">{{ oops</wire>'),
-			this.#markupCase("Expression that throws", '<wire to="{{ missingVariable.x }}"></wire>'),
+			this.#markupCase("Expression that throws", '<wire if="@{ missingVariable.x }" with="@scratch"></wire>'),
 		];
 
-		this.errorCaseRows = new Wire.Computed("errorCaseRows", [this.errorResults], (results) =>
-			this.cases.map((errorCase, index) => ({
-				index,
-				title: errorCase.title,
-				code: this.#escapeHtml(errorCase.code),
-				hasRun: index in results,
-				result: index in results ? this.#escapeHtml(results[index]) : "Not run yet",
-			})),
+		this.results = new Wire.State(
+			"validationResults",
+			cases.map((validationCase) => ({ title: validationCase.title, code: validationCase.code, result: this.#outcomeOf(validationCase) })),
 		);
 	}
 
@@ -351,35 +327,31 @@ class ValidationDemo {
 		// The element is never added to the page, so nothing visible is affected
 		const holder = document.createElement("div");
 		holder.innerHTML = markup;
-		controller.mountElement(holder.firstElementChild);
+		Wire.controller.mountElement(holder.firstElementChild);
 	}
 
-	#escapeHtml(text) {
-		return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-	}
-
-	runCase(index) {
-		let result = "No error was thrown";
+	#outcomeOf(validationCase) {
 		try {
-			this.cases[index].run();
+			validationCase.run();
+			return "No error was thrown";
 		} catch (error) {
-			const message = error.message.length > 170 ? `${error.message.slice(0, 170)}…` : error.message;
-			result = `${error.constructor.name}: ${message}`;
+			const message = error.message.length > 160 ? `${error.message.slice(0, 160)}…` : error.message;
+			return `${error.constructor.name}: ${message}`;
 		}
-		this.errorResults.set({ ...this.errorResults.get(), [index]: result });
 	}
 }
 
 //#endregion
 
-const stateDemo = new StateDemo();
-const computedDemo = new ComputedDemo();
+const signalsDemo = new SignalsDemo();
 const equalityDemo = new EqualityDemo();
-const toDemo = new ToDemo();
-const withDemo = new WithDemo();
-const ifDemo = new IfDemo();
-const forDemo = new ForDemo();
+const batchDemo = new BatchDemo();
+const cycleDemo = new CycleDemo();
+const escapingDemo = new EscapingDemo();
+const expressionsDemo = new ExpressionsDemo();
+const conditionDemo = new ConditionDemo();
+const listDemo = new ListDemo();
 const componentsDemo = new ComponentsDemo();
-const pollDemo = new PollDemo();
-const lifecycleDemo = new LifecycleDemo(toDemo.clockText);
+const focusDemo = new FocusDemo();
+const lifecycleDemo = new LifecycleDemo();
 const validationDemo = new ValidationDemo();

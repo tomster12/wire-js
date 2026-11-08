@@ -1,0 +1,25 @@
+{
+	"Wire: State": {
+		"prefix": "wire-state",
+		"body": [
+			"const ${1:name} = new Wire.State(\"${1}\", ${2:null});"
+		],
+		"description": "Declare a Wire.State signal"
+	},
+	"Wire: Computed": {
+		"prefix": "wire-computed",
+		"body": [
+			"const ${1:name} = new Wire.Computed(\"${1}\", [${2:dep}], (${3:d}) => ${4:d});"
+		],
+		"description": "Declare a Wire.Computed signal"
+	},
+	"Wire: listen": {
+		"prefix": "wire-listen",
+		"body": [
+			"const stop = ${1:signal}.listen((${2:value}) => {",
+			"\t$0",
+			"});"
+		],
+		"description": "Add a listener, stop() removes it"
+	}
+}

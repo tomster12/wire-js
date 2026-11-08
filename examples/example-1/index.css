@@ -178,6 +178,10 @@ section {
 	margin-top: 16px;
 }
 
+.sources:has(> figure:only-child) {
+	grid-template-columns: minmax(0, 1fr);
+}
+
 figure {
 	margin: 0;
 	min-width: 0;

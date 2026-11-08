@@ -1,8 +1,8 @@
 {
 	"name": "wire-js",
 	"displayName": "Wire.js",
-	"description": "HTML language support for Wire.js: <wire>/<component> attribute completion, {{ }} expression highlighting, and snippets.",
-	"version": "0.1.0",
+	"description": "HTML language support for Wire.js: <wire>/<component> attribute completion, {{ }} and @{ } expression highlighting, @signal references, and snippets.",
+	"version": "0.2.0",
 	"publisher": "local",
 	"license": "MIT",
 	"engines": { "vscode": "^1.74.0" },
@@ -16,12 +16,15 @@
 				"path": "./syntaxes/wire.injection.json",
 				"injectTo": ["text.html.derivative", "text.html.basic"],
 				"embeddedLanguages": {
-					"meta.embedded.expression.wire": "javascript"
+					"meta.embedded.expression.wire": "javascript",
+					"meta.embedded.expression.raw.wire": "javascript",
+					"meta.embedded.attribute-expression.wire": "javascript"
 				}
 			}
 		],
 		"snippets": [
-			{ "language": "html", "path": "./snippets/wire.json" }
+			{ "language": "html", "path": "./snippets/wire.json" },
+			{ "language": "javascript", "path": "./snippets/wire-js.json" }
 		],
 		"html": {
 			"customData": ["./html-data/wire.json"]
