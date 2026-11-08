@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>Wire.js · Features and edge cases</title>
+		<title>Wire.js cheat sheet</title>
 
 		<script src="../../wire.js"></script>
 		<script src="app.js"></script>
@@ -11,458 +11,313 @@
 	</head>
 
 	<body>
-		<div class="page">
-			<header class="masthead">
-				<p class="kicker">Features and edge cases</p>
-				<h1>Wire.js</h1>
-				<p class="standfirst">
-					A tour of what the library does, including the awkward corners. Every demonstration is running Wire.js, and the markup printed beneath it is read from the page
-					itself. See the README for the full reference.
-				</p>
-				<nav class="contents">
-					<a href="#signals">Signals</a>
-					<a href="#equality">Equality</a>
-					<a href="#batching">Batching</a>
-					<a href="#cycles">Cycles</a>
-					<a href="#escaping">Escaping</a>
-					<a href="#expressions">Expressions</a>
-					<a href="#conditions">Conditions</a>
-					<a href="#lists">Lists</a>
-					<a href="#components">Components</a>
-					<a href="#focus">Focus</a>
-					<a href="#lifecycle">Lifecycle</a>
-					<a href="#errors">Errors</a>
-					<a href="#notes">Edge cases</a>
-					<a href="#reference">Reference</a>
-				</nav>
-				<p class="note">Signals registered at this moment: <wire>{{ Wire.signalNames().join(', ') }}</wire></p>
-			</header>
+		<header>
+			<h1>Wire.js cheat sheet</h1>
+			<p>Every box is live. The markup printed under it is read from this page. See the README for the reference.</p>
+		</header>
 
-			<section id="signals">
-				<h2><span class="num">1</span>Signals</h2>
-				<p>
-					<code>State</code> holds a value, <code>Computed</code> derives one from a list of signals and chains. A <code>listen()</code> callback is yours; wires and
-					computeds subscribe internally, so <code>subscriberCount</code> is larger than <code>listeners.size</code>. A <code>Computed</code> only subscribes to its sources while
-					something is watching it.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-signals">
-						<div class="row">
-							<button onclick="signalsDemo.change(-1)">Subtract</button>
-							<strong class="big"><wire to="@count"></wire></strong>
-							<button onclick="signalsDemo.change(1)">Add</button>
-							<button onclick="signalsDemo.toggleLogging()">
-								<wire with="@loggingOn">{{ signalsDemo.loggingOn.get() ? 'Remove the listener' : 'Add a listener' }}</wire>
-							</button>
-						</div>
-						<dl class="facts">
-							<dt>double</dt>
-							<dd><wire to="@double"></wire></dd>
-							<dt>quadruple (of double)</dt>
-							<dd><wire to="@quadruple"></wire></dd>
-							<dt>count listeners / subscribers</dt>
-							<dd><wire with="@loggingOn">{{ signalsDemo.count.listeners.size }} / {{ signalsDemo.count.subscriberCount }}</wire></dd>
-						</dl>
-						<div class="log"><wire for="@log" each="line"><div>{{ line }}</div></wire></div>
+		<div class="cols">
+			<section class="case">
+				<h3>State · Computed chain</h3>
+				<div class="live" id="live-chain">
+					<div class="row">
+						<button onclick="count.update((n) => n - 1)">−</button>
+						<b><wire to="@count"></wire></b>
+						<button onclick="count.update((n) => n + 1)">+</button>
+						double <wire to="@double"></wire> · quadruple <wire to="@quadruple"></wire>
 					</div>
 				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-signals"></pre></figure>
-					<figure>
-						<figcaption>JavaScript</figcaption>
-						<pre>
+				<pre data-source-of="live-chain"></pre>
+				<pre>
 const count = new Wire.State("count", 0);
-const double = new Wire.Computed("double", [count], (value) =&gt; value * 2);
-
-count.set(1);
-count.update((value) =&gt; value + 1);
-
-const stop = count.listen((value) =&gt; console.log(value));
-stop();                        // unsubscribe</pre
-						>
-					</figure>
-				</div>
+const double = new Wire.Computed("double", [count], (v) =&gt; v * 2);
+const quadruple = new Wire.Computed("quadruple", [double], (v) =&gt; v * 2);</pre
+				>
 			</section>
 
-			<section id="equality">
-				<h2><span class="num">2</span>Equality</h2>
-				<p>
-					<code>set()</code> stays silent for the same primitive and for a different object that is shallow-equal to the current one. Setting the <em>same object</em> again
-					always notifies, because it may have been mutated in place, and anything rendered from it is rebuilt.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-equality">
+			<section class="case">
+				<h3>listen() on a Computed</h3>
+				<div class="live" id="live-listen">
+					<div class="row">
+						<button onclick="toggleListener()"><wire with="@listening">{{ listening.get() ? "Stop listening" : "Listen to double" }}</wire></button>
+						<span class="muted">then use + and − above</span>
+					</div>
+					<div><wire for="@log" each="line"><div>{{ line }}</div></wire></div>
+				</div>
+				<pre data-source-of="live-listen"></pre>
+				<pre>
+const stop = double.listen((value) =&gt; console.log(value));
+stop();   // once per batch, latest value, only if it changed</pre
+				>
+			</section>
+
+			<section class="case">
+				<h3>Batching · Wire.flush()</h3>
+				<div class="live" id="live-batch">
+					<div class="row">
+						<button onclick="for (let i = 0; i < 5; i++) batchValue.update((n) => n + 1)">+1 five times</button>
+						<button onclick="setThenFlush()">set, read DOM, flush, read DOM</button>
+					</div>
+					<div>
+						value <span id="batch-value"><wire to="@batchValue"></wire></span> · squared <wire to="@batchSquared"></wire> · Computed ran
+						<wire with="@batchValue @batchSquared">{{ computeCalls }}</wire> times
+					</div>
+					<div class="err"><wire to="@flushReport"></wire></div>
+				</div>
+				<pre data-source-of="live-batch"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Equality · mutate in place</h3>
+				<div class="live" id="live-equality">
+					<div class="row">
+						<button onclick="point.set({ ...point.get() })">equal copy</button>
+						<button onclick="point.update((p) => ({ ...p, x: p.x + 1 }))">changed copy</button>
+						<button onclick="point.update((p) => { p.x += 1; return p; })">mutate in place</button>
+					</div>
+					<div class="row">
+						<button onclick="number.set(5)">same number</button>
+						<button onclick="number.update((n) => n + 1)">new number</button>
+					</div>
+					<div>point <wire with="@point">{{ JSON.stringify(point.get()) }}</wire> · listener ran <wire to="@pointRuns"></wire>×</div>
+					<div>number <wire to="@number"></wire> · listener ran <wire to="@numberRuns"></wire>×</div>
+				</div>
+				<pre data-source-of="live-equality"></pre>
+				<pre>
+// set() ignores an identical primitive, an object always notifies,
+// then listeners and wires compare JSON snapshots to decide.</pre
+				>
+			</section>
+
+			<section class="case">
+				<h3>update() must return</h3>
+				<div class="live" id="live-update">
+					<div class="row"><button onclick="updateWithoutReturn()">update() with no return</button></div>
+					<div class="err"><wire to="@updateReport"></wire></div>
+				</div>
+				<pre data-source-of="live-update"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Escaping · {{ }} and {{{ }}}</h3>
+				<div class="live" id="live-escaping">
+					<input oninput="userText.set(this.value)" placeholder="type markup or {{ 1 + 1 }} or @{ 1 + 1 }" />
+					<div>to: <wire to="@userText"></wire></div>
+					<div>{{ }}: <wire with="@userText">{{ userText.get() }}</wire></div>
+					<div>{{{ }}}: <wire>{{{ trustedMarkup }}}</wire></div>
+				</div>
+				<pre data-source-of="live-escaping"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Expressions · with · once · stale</h3>
+				<div class="live" id="live-expressions">
+					<div class="row">
+						a <button onclick="a.update((n) => n + 1)">+</button> <wire to="@a"></wire> b <button onclick="b.update((n) => n + 1)">+</button> <wire to="@b"></wire>
+					</div>
+					<div>product, with a and b: <wire with="@a @b">{{ a.get() * b.get() }}</wire></div>
+					<div>names only a, so b goes stale: <wire with="@a">{{ a.get() }} + {{ b.get() }}</wire></div>
+					<div>no attributes, renders once: <wire>{{ new Date().toLocaleTimeString() }}</wire></div>
+					<div>space between braces: <wire>{{ ({ x: { y: 1 } }).x.y }}</wire></div>
+				</div>
+				<pre data-source-of="live-expressions"></pre>
+			</section>
+
+			<section class="case">
+				<h3>if · else if · else</h3>
+				<div class="live" id="live-conditions">
+					<div class="row">
+						<input type="range" min="0" max="100" value="60" oninput="score.set(Number(this.value))" />
+						<wire to="@score"></wire>
+						<wire if="@{ score.get() >= 80 }" with="@score">great</wire>
+						<wire else if="@{ score.get() >= 50 }">ok</wire>
+						<wire else>low</wire>
+					</div>
+					<div class="row">
+						<button onclick="flag.update((f) => !f)">toggle</button>
+						<wire if="@flag">on</wire>
+						<wire else>off</wire>
+					</div>
+				</div>
+				<pre data-source-of="live-conditions"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Lists · each · nested · component per row</h3>
+				<div class="live" id="live-lists">
+					<div class="row">
+						<button onclick="sortTodos('title')">sort title</button>
+						<button onclick="sortTodos('id')">sort id</button>
+						<button onclick="addTodo()">add</button>
+						<button onclick="todos.update((t) => { t[0].done = !t[0].done; return t; })">mutate first in place</button>
+					</div>
+					<component name="todo-info" arg:id arg:tag-count>
+						<small class="muted">#{{ id }} · {{ tagCount }} tags · loop variable: {{ typeof todo }}</small>
+					</component>
+					<wire for="@todos" each="todo">
 						<div class="row">
-							<button onclick="equalityDemo.setEqualCopy()">Set an equal copy</button>
-							<button onclick="equalityDemo.setChangedCopy()">Set a changed copy</button>
-							<button onclick="equalityDemo.mutateAndSetSameObject()">Mutate in place, set the same object</button>
+							<wire if="@{ todo.done }">✔</wire><wire else>○</wire>
+							<span>{{ todo.title }}</span>
+							<wire for="@{ todo.tags }" each="tag"><span class="tag">{{ tag }}</span></wire>
+							<component instance name="todo-info" arg:id="@{ todo.id }" arg:tag-count="@{ todo.tags.length }"></component>
+							<button onclick="toggleTodo({{ todo.id }})">toggle</button>
 						</div>
-						<div class="row">
-							<button onclick="equalityDemo.setSameNumber()">Set the same number</button>
-							<button onclick="equalityDemo.setNewNumber()">Set a new number</button>
-						</div>
-						<dl class="facts">
-							<dt>point</dt>
-							<dd><wire with="@point">{{ JSON.stringify(equalityDemo.point.get()) }}</wire></dd>
-							<dt>point notifications</dt>
-							<dd><wire to="@pointNotifications"></wire></dd>
-							<dt>number</dt>
-							<dd><wire to="@number"></wire></dd>
-							<dt>number notifications</dt>
-							<dd><wire to="@numberNotifications"></wire></dd>
-						</dl>
+					</wire>
+				</div>
+				<pre data-source-of="live-lists"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Repeat n times · filter by expression</h3>
+				<div class="live" id="live-repeat">
+					<div class="row">
+						<button onclick="stars.update((n) => n % 5 + 1)">stars</button>
+						<wire for="@{ Array(stars.get()).fill(0) }" with="@stars">★</wire>
+					</div>
+					<input oninput="filter.set(this.value)" placeholder="filter names" />
+					<div>
+						<wire for="@{ names.get().filter((name) => name.includes(filter.get())) }" with="@names @filter" each="name"><span class="tag">{{ name }}</span> </wire>
 					</div>
 				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-equality"></pre></figure>
-					<figure>
-						<figcaption>JavaScript</figcaption>
-						<pre>
-point.set({ ...point.get() });          // equal copy: no notification
-point.set({ ...point.get(), x: 9 });    // different: notifies
-
-const current = point.get();
-current.x += 1;
-point.set(current);                     // same object: notifies
-
-number.set(5);                          // same primitive: no notification</pre
-						>
-					</figure>
-				</div>
+				<pre data-source-of="live-repeat"></pre>
 			</section>
 
-			<section id="batching">
-				<h2><span class="num">3</span>Batching and flush</h2>
-				<p>
-					Several <code>set()</code> calls in a row cause one recalculation and one DOM update, applied at the end of the current microtask. Code that needs the DOM right after
-					a <code>set()</code> calls <code>Wire.flush()</code>. Reading a signal never needs it, because a stale <code>Computed</code> recalculates when you call <code>get()</code>.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-batching">
-						<div class="row">
-							<button onclick="batchDemo.setFiveTimes()">Set five times in a row</button>
-							<button onclick="batchDemo.readDomAfterSet()">Set, then read the DOM before and after flush</button>
-						</div>
-						<dl class="facts">
-							<dt>value</dt>
-							<dd id="batch-value"><wire to="@batchValue"></wire></dd>
-							<dt>squared</dt>
-							<dd><wire to="@batchSquared"></wire></dd>
-							<dt>times the Computed ran</dt>
-							<dd><wire with="@batchSquared">{{ batchDemo.computeCalls }}</wire></dd>
-						</dl>
-						<p class="result"><wire to="@flushReport"></wire></p>
+			<section class="case">
+				<h3>Components · args · kebab-case · null · defined after use</h3>
+				<div class="live" id="live-components">
+					<component instance name="card" arg:title="Literal"></component>
+					<component instance name="card" arg:title="@userName" arg:unit-label="@{ 'kg' }"></component>
+					<div class="row"><button onclick="userName.update((n) => n === 'Ada' ? 'Grace' : 'Ada')">rename</button></div>
+					<component name="card" arg:title arg:unit-label>
+						<div><b>{{ title }}</b> {{ unitLabel }} · unitLabel is null: {{ unitLabel === null }}</div>
+					</component>
+				</div>
+				<pre data-source-of="live-components"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Recursive component</h3>
+				<div class="live" id="live-tree">
+					<component name="node" arg:item>
+						<li>
+							{{ item.name }}
+							<ul>
+								<wire for="@{ item.children }" each="child"><component instance name="node" arg:item="@{ child }"></component></wire>
+							</ul>
+						</li>
+					</component>
+					<ul><component instance name="node" arg:item="@tree"></component></ul>
+					<div class="row">
+						<button onclick="tree.update((t) => { t.children[0].children.push({ name: 'a' + (t.children[0].children.length + 1), children: [] }); return t; })">
+							grow a branch in place
+						</button>
 					</div>
 				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-batching"></pre></figure>
-				</div>
+				<pre data-source-of="live-tree"></pre>
 			</section>
 
-			<section id="cycles">
-				<h2><span class="num">4</span>Update cycles</h2>
-				<p>
-					If updates keep triggering each other, Wire stops after 100 rounds and throws <code>Wire.errors.WireCycleError</code> from the flush. Here a listener on a
-					<code>Computed</code> sets the signal the computed reads.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-cycles">
-						<div class="row"><button onclick="cycleDemo.run()">Create a feedback loop</button></div>
-						<p class="result"><wire to="@cycleResult"></wire></p>
+			<section class="case">
+				<h3>Signals by name · loop variable wins</h3>
+				<div class="live" id="live-names">
+					<div>no variable holds it: <wire to="@hidden"></wire></div>
+					<div>same, in an expression: <wire>{{ hidden.get() }}</wire></div>
+					<div>
+						loop variable wins: <wire for="@{ [1, 2] }" each="shadowed">{{ shadowed }} </wire>· the signal: <wire to="@shadowed"></wire>
 					</div>
 				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-cycles"></pre></figure>
-					<figure>
-						<figcaption>JavaScript</figcaption>
-						<pre>
-mirror.listen((value) =&gt; source.set(value + 1));   // feeds itself
-source.set(1);
-Wire.flush();                                      // throws WireCycleError</pre
-						>
-					</figure>
-				</div>
+				<pre data-source-of="live-names"></pre>
 			</section>
 
-			<section id="escaping">
-				<h2><span class="num">5</span>Escaping</h2>
-				<p>
-					<code>to</code> and <code>{{ }}</code> escape their output, so data is shown, never run: markup, template syntax and <code>@</code> syntax all appear as text.
-					<code>{{{ }}}</code> writes markup unescaped and is only for HTML your own code produced.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-escaping">
-						<div class="row">
-							<wire for="@samples" each="sample"><button onclick="escapingDemo.pick({{ sample.index }})">{{ sample.label }}</button></wire>
-						</div>
-						<dl class="facts">
-							<dt>to="@userText"</dt>
-							<dd><wire to="@userText"></wire></dd>
-							<dt>&#123;&#123; &#125;&#125;</dt>
-							<dd><wire with="@userText">{{ escapingDemo.userText.get() }}</wire></dd>
-							<dt>&#123;&#123;&#123; &#125;&#125;&#125; on trusted markup</dt>
-							<dd><wire>{{{ escapingDemo.trustedMarkup }}}</wire></dd>
-						</dl>
+			<section class="case">
+				<h3>Focus survives re-render · unchanged output keeps elements</h3>
+				<div class="live" id="live-focus">
+					<wire with="@tick">
+						<input placeholder="type here, this wire re-renders every second ({{ new Date(tick.get()).toLocaleTimeString() }})" size="48" />
+					</wire>
+					<div class="row">
+						<wire for="@items" with="@tick" each="item"><button class="stable">{{ item.name }}</button></wire>
+						<button onclick="items.set(items.get())">set same object</button>
+						<button onclick="checkStableElement()">same element?</button>
+						<wire to="@stableReport"></wire>
 					</div>
 				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-escaping"></pre></figure>
-				</div>
+				<pre data-source-of="live-focus"></pre>
 			</section>
 
-			<section id="expressions">
-				<h2><span class="num">6</span>Expressions and dependencies</h2>
-				<p>
-					An element's own content is its template, and <code>{{ }}</code> inside it holds any JavaScript expression, including <code>&gt;</code> and <code>&amp;&amp;</code>. An
-					element re-renders only for the signals it names, so an expression that reads a signal missing from <code>with</code> goes stale. With no attributes at all, the
-					template renders once.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-expressions">
-						<div class="row">
-							<button onclick="expressionsDemo.a.update((value) => value + 1)">a + 1</button>
-							<button onclick="expressionsDemo.b.update((value) => value + 1)">b + 1</button>
-						</div>
-						<dl class="facts">
-							<dt>with="@a @b"</dt>
-							<dd>
-								<wire with="@a @b">
-									{{ expressionsDemo.a.get() }} + {{ expressionsDemo.b.get() }} = {{ expressionsDemo.a.get() + expressionsDemo.b.get() }},
-									{{ expressionsDemo.a.get() > expressionsDemo.b.get() && "a is bigger" || "b is at least as big" }}
-								</wire>
-							</dd>
-							<dt>with="@a" only</dt>
-							<dd><wire with="@a">{{ expressionsDemo.a.get() }} + {{ expressionsDemo.b.get() }} (b is not listed, so it goes stale)</wire></dd>
-							<dt>no attributes</dt>
-							<dd><wire>rendered once at {{ expressionsDemo.loadedAt }}</wire></dd>
-						</dl>
+			<section class="case">
+				<h3>Removed wires stop rendering</h3>
+				<div class="live" id="live-lifecycle">
+					<div class="row">
+						<button onclick="panelOpen.update((open) => !open)">toggle panel</button>
+						panel renders so far: <wire to="@renderCount"></wire>
+					</div>
+					<wire if="@panelOpen"><div class="chip">panel <wire with="@tick">{{ countRender() }}</wire></div></wire>
+				</div>
+				<pre data-source-of="live-lifecycle"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Tables · build the whole table in one expression</h3>
+				<div class="live" id="live-table">
+					<div class="row"><button onclick="randomiseServers()">randomise cpu</button></div>
+					<wire with="@servers">{{{ serverTable(servers.get()) }}}</wire>
+				</div>
+				<pre data-source-of="live-table"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Insert wires from JavaScript · Wire.mount()</h3>
+				<div class="live" id="live-insert">
+					<div class="row"><button onclick="insertWire()">insert a wire</button></div>
+					<div id="insert-target"></div>
+				</div>
+				<pre data-source-of="live-insert"></pre>
+				<pre>
+target.insertAdjacentHTML("beforeend", '&lt;wire to="@count"&gt;&lt;/wire&gt;');
+Wire.mount(target);</pre
+				>
+			</section>
+
+			<section class="case">
+				<h3>Plain attributes on a wire</h3>
+				<div class="live" id="live-plain">
+					<div>
+						<wire id="plain" class="chip" title="hover me" data-x="1" aria-label="count" style="color: #a8351b; font-weight: bold" to="@count"></wire>
+						<span class="muted">id, class, title, data-*, aria-* and style pass through</span>
 					</div>
 				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-expressions"></pre></figure>
-				</div>
+				<pre data-source-of="live-plain"></pre>
 			</section>
 
-			<section id="conditions">
-				<h2><span class="num">7</span>if, else if and else</h2>
-				<p>
-					<code>if</code> takes a signal or an <code>@{ expression }</code> and hides and empties the element while it is false. <code>else</code> shows when the preceding
-					<code>&lt;wire&gt;</code>'s condition was false, and can carry its own <code>if</code> to chain.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-conditions">
-						<div class="row">
-							<button onclick="conditionDemo.score.set(20)">Score 20</button>
-							<button onclick="conditionDemo.score.set(50)">Score 50</button>
-							<button onclick="conditionDemo.score.set(90)">Score 90</button>
-							<button onclick="conditionDemo.flag.update((flag) => !flag)">Toggle flag</button>
-						</div>
-						<p class="result">
-							<wire if="@{ conditionDemo.score.get() >= 70 }" with="@score">High score</wire>
-							<wire else if="@{ conditionDemo.score.get() >= 40 }" with="@score">Medium score</wire>
-							<wire else>Low score</wire>
-						</p>
-						<wire if="@flag" class="banner">Shown while the flag signal is truthy.</wire>
+			<section class="case">
+				<h3>One bad element does not stop the rest</h3>
+				<div class="live" id="live-isolation">
+					<div>
+						<wire to="@ghost"></wire> ← unknown signal, outlined · <wire to="@count"></wire> ← still renders · <wire banana="1"></wire> ← unknown attribute
+					</div>
+					<div class="row">
+						<button onclick="errorTotal.set(Wire.errors.length)">count Wire.errors</button>
+						<wire to="@errorTotal"></wire>
 					</div>
 				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-conditions"></pre></figure>
+				<pre data-source-of="live-isolation"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Messages for broken markup</h3>
+				<div class="live" id="live-errors">
+					<wire for="@validationResults" each="result"><div class="err">{{ result.markup }}<br />→ {{ result.message }}</div></wire>
 				</div>
 			</section>
 
-			<section id="lists">
-				<h2><span class="num">8</span>Lists and scope</h2>
-				<p>
-					<code>for</code> repeats the content, and <code>each</code> names the item. The item is in scope for everything nested in the loop, including <code>@{ }</code>
-					attributes of nested wires and components. Inside a template, <code>{{ }}</code> in a nested tag is plain text substitution, so <code>arg:id="&#123;&#123; todo.id &#125;&#125;"</code>
-					arrives as the string, while <code>@{ }</code> keeps its type. Data is never evaluated, as the third item shows.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-lists">
-						<component name="todo-info" arg:total arg:id>
-							<span class="muted">tags: {{ total }} ({{ typeof total }}), id: {{ id }} ({{ typeof id }}), loop variable: {{ typeof todo }}</span>
-						</component>
-
-						<div class="row">
-							<button onclick="listDemo.sortBy('title')">Sort by title</button>
-							<button onclick="listDemo.sortBy('id')">Sort by id</button>
-							<button onclick="listDemo.mutateInPlace()">Mutate the first item in place</button>
-						</div>
-						<div class="ruled">
-							<wire for="@todos" each="todo">
-								<div class="ruled-row">
-									<span><wire if="@{ todo.done }">✔</wire><wire else>○</wire> {{ todo.title }}</span>
-									<span class="tags"><wire for="@{ todo.tags }" each="tag"><span class="tag">{{ tag }}</span></wire></span>
-									<span>
-										<component instance name="todo-info" arg:total="@{ todo.tags.length }" arg:id="{{ todo.id }}"></component>
-										<button onclick="listDemo.toggle({{ todo.id }})">Toggle</button>
-									</span>
-								</div>
-							</wire>
-						</div>
-
-						<h3>Repeating n times</h3>
-						<div class="row">
-							<button onclick="listDemo.stars.update((count) => Math.max(0, count - 1))">Fewer</button>
-							<button onclick="listDemo.stars.update((count) => count + 1)">More</button>
-						</div>
-						<p class="rating"><wire for="@{ Array(listDemo.stars.get()).fill(0) }" with="@stars">★</wire></p>
-					</div>
+			<section class="case">
+				<h3>Update cycles stop after 100 rounds</h3>
+				<div class="live" id="live-cycle">
+					<div class="row"><button onclick="makeCycle()">listener that sets its own signal</button></div>
+					<div class="err"><wire to="@cycleReport"></wire></div>
 				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-lists"></pre></figure>
-				</div>
+				<pre data-source-of="live-cycle"></pre>
 			</section>
-
-			<section id="components">
-				<h2><span class="num">9</span>Components</h2>
-				<p>
-					A component's template sees only its own arguments and globals. Arguments you leave out arrive as <code>null</code>, <code>@signal</code> arguments are reactive, and
-					<code>@{ }</code> arguments are evaluated when the instance renders and keep their type. The third card is created inside a loop: <code>secret</code> is visible to its
-					<code>@{ }</code> argument but not inside the template.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-components">
-						<component name="badge" arg:text>
-							<span class="tag">{{ text }}</span>
-						</component>
-						<component name="card" arg:title arg:count>
-							<div class="profile">
-								<div>
-									<div class="profile-name">{{ title }}</div>
-									<div class="profile-note">count: {{ count }} ({{ typeof count }}), Math.PI: {{ Math.PI.toFixed(2) }}, secret: {{ typeof secret }}</div>
-									<component instance name="badge" arg:text="@{ 'nested in ' + title }"></component>
-								</div>
-							</div>
-						</component>
-
-						<div class="row"><button onclick="componentsDemo.rename()">Rename the signal argument</button></div>
-						<div class="profiles">
-							<component instance name="card" arg:title="Literal title"></component>
-							<component instance name="card" arg:title="@userName" arg:count="@{ 42 }"></component>
-							<wire for="@{ [1] }" each="secret"><component instance name="card" arg:title="Made in a loop" arg:count="@{ secret + 41 }"></component></wire>
-						</div>
-					</div>
-				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-components"></pre></figure>
-				</div>
-			</section>
-
-			<section id="focus">
-				<h2><span class="num">10</span>Re-rendering and focus</h2>
-				<p>
-					A re-render replaces the element's children, unless the new HTML and items are identical to the last render. When children are replaced, the focused field gets its focus,
-					typed text and caret back. Setting the same object forces a rebuild, because it may have been mutated.
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-focus">
-						<wire with="@focusClock">
-							<label class="field">
-								<span>Type here, this wire re-renders every second ({{ focusDemo.clockText() }})</span>
-								<input class="text-input" name="note" placeholder="Focus, text and caret survive" />
-							</label>
-						</wire>
-						<div class="row">
-							<wire for="@focusItems" with="@focusClock" each="item"><button class="stable-item">{{ item.name }}</button></wire>
-							<button onclick="focusDemo.setSameObject()">Set the same object</button>
-						</div>
-						<dl class="facts">
-							<dt>Still the first button?</dt>
-							<dd><wire to="@sameElement"></wire></dd>
-						</dl>
-					</div>
-				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-focus"></pre></figure>
-				</div>
-			</section>
-
-			<section id="lifecycle">
-				<h2><span class="num">11</span>Lifecycle</h2>
-				<p>
-					Elements that leave the page are unsubscribed, and a <code>Computed</code> drops its own subscriptions once nothing is watching it. Toggle the panel and read the
-					counts on the next tick (the count wires are subscribers of the clock themselves).
-				</p>
-				<div class="demo">
-					<div class="demo-live" id="live-lifecycle">
-						<wire for="@{ lifecycleDemo.panelMounted.get() ? [1] : [] }" with="@panelMounted">
-							<div class="panel-demo">A wire watching clockText: <wire to="@lifeClockText"></wire></div>
-						</wire>
-						<div class="row">
-							<button onclick="lifecycleDemo.toggle()"><wire with="@panelMounted">{{ lifecycleDemo.panelMounted.get() ? 'Remove the panel' : 'Add the panel' }}</wire></button>
-							<span class="muted">
-								clockText subscribers: <wire with="@lifeClock">{{ lifecycleDemo.clockText.subscriberCount }}</wire>, clock subscribers:
-								<wire with="@lifeClock">{{ lifecycleDemo.clock.subscriberCount }}</wire>
-							</span>
-						</div>
-					</div>
-				</div>
-				<div class="sources">
-					<figure><figcaption>HTML</figcaption><pre data-source-of="live-lifecycle"></pre></figure>
-				</div>
-			</section>
-
-			<section id="errors">
-				<h2><span class="num">12</span>Validation errors</h2>
-				<p>Markup is checked when an element mounts. Each case below was built, mounted outside the page, and the error it threw is printed.</p>
-				<div class="demo">
-					<div class="demo-live" id="live-errors">
-						<wire for="@validationResults" each="errorCase">
-							<div class="case">
-								<div class="case-head"><span class="case-title">{{ errorCase.title }}</span></div>
-								<code class="case-code">{{ errorCase.code }}</code>
-								<div class="case-result ran">{{ errorCase.result }}</div>
-							</div>
-						</wire>
-					</div>
-				</div>
-			</section>
-
-			<section id="notes">
-				<h2><span class="num">13</span>Edge cases</h2>
-				<ul class="rules">
-					<li>Always close the elements: <code>&lt;wire ...&gt;&lt;/wire&gt;</code>. The browser ignores <code>/&gt;</code> and nests what follows.</li>
-					<li>A <code>}}</code> inside an expression ends it, so write <code>&#123;&#123; ({ a: { b: 1 } }).a &#125;&#125;</code> with a space between closing braces.</li>
-					<li>A bare <code>&#123;&#123; x &#125;&#125;</code> between attributes does not work in page markup, the browser turns it into attributes. Put it inside a quoted value.</li>
-					<li>On a page, <code>&#123;&#123; &#125;&#125;</code> in a <code>&lt;wire&gt;</code> or <code>&lt;component&gt;</code> attribute throws. Inside a template it is substituted as text.</li>
-					<li>Substituted text is read as markup afterwards. A value that starts with <code>@</code> or <code>@{</code> in a nested tag attribute is read as Wire syntax, so substitute only values you control.</li>
-					<li>The content of a nested <code>&lt;wire&gt;</code> or <code>&lt;component&gt;</code> is not evaluated by the outer template. That element evaluates its own content with its own scope.</li>
-					<li>Expressions are compiled with <code>new Function</code>, so a Content Security Policy must allow <code>unsafe-eval</code>.</li>
-					<li>Signal and component names are global and unique. Registering a name twice throws.</li>
-					<li>State listeners run synchronously. Computed listeners and DOM updates run in a microtask.</li>
-					<li>Event handlers are plain inline attributes. Putting data inside one, such as <code>onclick="f('&#123;&#123; name &#125;&#125;')"</code>, can break out of the string, so pass an id instead.</li>
-					<li>Lists are rebuilt when their output changes, so a click that starts on a row that is replaced before release is lost. Use <code>onmousedown</code> for rows that change often.</li>
-					<li>Focus restore is best effort: it matches by position and does not restore scroll, other typed fields, or a pointer drag. Keep such controls outside the re-rendering wire.</li>
-					<li><code>class</code> and <code>style</code> are plain attributes, never parsed as Wire syntax.</li>
-				</ul>
-			</section>
-
-			<section id="reference">
-				<h2><span class="num">14</span>Reference</h2>
-				<table class="reference">
-					<thead>
-						<tr><th>Element</th><th>Attribute</th><th>Accepts</th><th>Effect</th></tr>
-					</thead>
-					<tbody>
-						<tr><td rowspan="8"><code>&lt;wire&gt;</code></td><td><code>to</code></td><td>signal</td><td>Writes the value as escaped text. No content allowed; exclusive with <code>for</code>.</td></tr>
-						<tr><td><code>with</code></td><td>one or more signals</td><td>Re-renders the content when any of them changes.</td></tr>
-						<tr><td><code>for</code></td><td>signal, <code>@{ }</code></td><td>Repeats the content per array item.</td></tr>
-						<tr><td><code>each</code></td><td>literal</td><td>Names the loop variable. Requires <code>for</code>.</td></tr>
-						<tr><td><code>if</code></td><td>signal, <code>@{ }</code></td><td>Hides and empties the element while falsy.</td></tr>
-						<tr><td><code>else</code></td><td>flag</td><td>Shows when the preceding <code>if</code> / <code>else</code> sibling was false.</td></tr>
-						<tr><td><code>style</code></td><td>literal</td><td>Plain attribute.</td></tr>
-						<tr><td><code>class</code></td><td>literal</td><td>Plain attribute.</td></tr>
-						<tr><td rowspan="5"><code>&lt;component&gt;</code></td><td><code>name</code></td><td>literal</td><td>Required. Names the template, or selects the one to render.</td></tr>
-						<tr><td><code>instance</code></td><td>flag</td><td>Renders the named template instead of defining it.</td></tr>
-						<tr><td><code>arg:NAME</code></td><td>flag on a definition; signal, <code>@{ }</code> or literal on an instance</td><td>Declares an argument, or supplies its value.</td></tr>
-						<tr><td><code>style</code></td><td>literal</td><td>Plain attribute.</td></tr>
-						<tr><td><code>class</code></td><td>literal</td><td>Plain attribute.</td></tr>
-					</tbody>
-				</table>
-			</section>
-
-			<footer class="colophon">Wire.js · the markup beside each demonstration is generated from this page by <code>fillSourceBlocks()</code> in app.js.</footer>
 		</div>
 
 		<script>
