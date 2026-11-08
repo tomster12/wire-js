@@ -2,12 +2,30 @@
 	"scopeName": "wire.injection",
 	"injectionSelector": "L:text.html - (comment, source.js, source.css)",
 	"patterns": [
+		{ "include": "#raw-expression" },
 		{ "include": "#expression" },
+		{ "include": "#attribute-expression" },
+		{ "include": "#with-signals" },
 		{ "include": "#signal-reference" },
 		{ "include": "#arg-attribute" }
 	],
 	"repository": {
+		"raw-expression": {
+			"comment": "Unescaped template output: {{{ expr }}}",
+			"name": "meta.embedded.expression.raw.wire",
+			"begin": "\\{\\{\\{",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.template-expression.begin.wire keyword.control.wire" }
+			},
+			"end": "\\}\\}\\}",
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.template-expression.end.wire keyword.control.wire" }
+			},
+			"contentName": "source.js",
+			"patterns": [{ "include": "source.js" }]
+		},
 		"expression": {
+			"comment": "Escaped template output: {{ expr }}",
 			"name": "meta.embedded.expression.wire",
 			"begin": "\\{\\{",
 			"beginCaptures": {
@@ -20,9 +38,42 @@
 			"contentName": "source.js",
 			"patterns": [{ "include": "source.js" }]
 		},
+		"attribute-expression": {
+			"comment": "A whole attribute value of the form \"@{ expr }\"",
+			"name": "meta.embedded.attribute-expression.wire",
+			"begin": "(?<=[\"'])(@)(\\{)",
+			"beginCaptures": {
+				"1": { "name": "punctuation.definition.signal.wire keyword.operator.wire" },
+				"2": { "name": "punctuation.definition.template-expression.begin.wire" }
+			},
+			"end": "(\\})(?=[\"'])",
+			"endCaptures": {
+				"1": { "name": "punctuation.definition.template-expression.end.wire" }
+			},
+			"contentName": "source.js",
+			"patterns": [{ "include": "source.js" }]
+		},
+		"with-signals": {
+			"comment": "with=\"@a @b\", one or more signals",
+			"match": "(?<=\\s)(with)(\\s*=\\s*)([\"'])([^\"']*)(\\3)",
+			"captures": {
+				"1": { "name": "entity.other.attribute-name.wire" },
+				"2": { "name": "punctuation.separator.key-value.html" },
+				"3": { "name": "string.quoted.double.html punctuation.definition.string.begin.html" },
+				"4": { "patterns": [{ "include": "#signal-token" }] },
+				"5": { "name": "string.quoted.double.html punctuation.definition.string.end.html" }
+			}
+		},
+		"signal-token": {
+			"match": "(@)([A-Za-z_$][\\w$-]*)",
+			"captures": {
+				"1": { "name": "punctuation.definition.signal.wire keyword.operator.wire" },
+				"2": { "name": "variable.other.signal.wire" }
+			}
+		},
 		"signal-reference": {
 			"comment": "A whole attribute value of the form \"@signalName\"",
-			"match": "(?<=[\"'])(@)([A-Za-z_$][\\w$]*)(?=[\"'])",
+			"match": "(?<=[\"'])(@)([A-Za-z_$][\\w$-]*)(?=[\"'])",
 			"captures": {
 				"1": { "name": "punctuation.definition.signal.wire keyword.operator.wire" },
 				"2": { "name": "variable.other.signal.wire" }

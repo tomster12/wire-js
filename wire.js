@@ -1,455 +1,805 @@
-function evalWithVariables(code, vars = {}) {
-	const argNames = Object.keys(vars);
-	const argValues = Object.values(vars);
-	const fn = new Function(...argNames, `"use strict"; return (${code});`);
-	return fn(...argValues);
-}
+(() => {
+	"use strict";
 
-function isEqualShallow(a, b) {
-	// Shallow equality
-	if (Object.is(a, b)) return true;
+	const PLAIN_HTML_ATTRIBUTES = ["class", "style"];
 
-	if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
+	// Utility
 
-	const aKeys = Object.keys(a);
-	const bKeys = Object.keys(b);
-	if (aKeys.length !== bKeys.length) return false;
+	const evalFuncCache = new Map();
 
-	for (const k of aKeys) {
-		if (!Object.is(a[k], b[k])) return false;
+	function evalWithVariables(code, vars = {}) {
+		const argNames = Object.keys(vars);
+		const cacheKey = `${argNames.join(",")}\u0000${code}`;
+		let evalFunc = evalFuncCache.get(cacheKey);
+		if (!evalFunc) {
+			evalFunc = new Function(...argNames, `"use strict"; return (${code});`);
+			evalFuncCache.set(cacheKey, evalFunc);
+		}
+		return evalFunc(...Object.values(vars));
 	}
 
-	return true;
-}
+	function isEqualShallow(a, b) {
+		if (Object.is(a, b)) return true;
 
-function parseAttribute(attrName, attrValue, allowedTypes, source) {
-	let attr = {};
-	if (attrValue.startsWith("@")) {
-		const signal = controller.resolveSignal(attrValue.slice(1));
-		attr = { type: "signal", signal, value: attrValue };
-	} else if (attrValue.startsWith("{{")) {
-		if (!attrValue.endsWith("}}")) throw new WireAttributeError("An argument starting with '{{' must end with '}}'");
-		attr = { type: "expr", value: attrValue };
-	} else if (attrValue == null || attrValue.length == 0) {
-		attr = { type: "flag" };
-	} else {
-		attr = { type: "literal", value: attrValue };
-	}
-	if (!allowedTypes.includes(attr.type))
-		throw new WireAttributeError(
-			`Attribute '${attrName}' cannot be type '${attr.type}' with value '${attrValue}' on ${source} elements (allowed=${JSON.stringify(allowedTypes)})`,
-		);
-	return attr;
-}
+		if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
 
-class WireHydrationError extends Error {}
+		const aKeys = Object.keys(a);
+		const bKeys = Object.keys(b);
+		if (aKeys.length !== bKeys.length) return false;
 
-class WireAttributeError extends Error {}
-
-class WireRegistrationError extends Error {}
-
-class Signal {
-	constructor(name) {
-		this.name = name;
-		this.value = undefined;
-		this.listeners = [];
-
-		controller.registerSignal(name, this);
-	}
-
-	get() {
-		return this.value;
-	}
-
-	listen(callback) {
-		this.listeners.push(callback);
-		return () => {
-			this.listeners = this.listeners.filter((l) => l !== callback);
-		};
-	}
-}
-
-class State extends Signal {
-	constructor(name, value) {
-		super(name);
-
-		this.set(value);
-	}
-
-	set(value) {
-		if (isEqualShallow(this.value, value)) return;
-
-		this.value = value;
-		this.listeners.forEach((callback) => callback(this.value));
-	}
-}
-
-class Computed extends Signal {
-	constructor(name, dependencies, compute) {
-		super(name);
-		this.dependencies = dependencies;
-		this.compute = compute;
-		this.dependencyUnsubs = [];
-
-		for (const signal of this.dependencies) {
-			const unsub = signal.listen(this.recalculate.bind(this));
-			this.dependencyUnsubs.push(unsub);
+		for (const k of aKeys) {
+			if (!Object.is(a[k], b[k])) return false;
 		}
 
-		this.recalculate();
+		return true;
 	}
 
-	dispose() {
-		for (const unsub of this.dependencyUnsubs) unsub();
-		this.dependencyUnsubs = [];
-		this.listeners = [];
+	function isObjectLike(value) {
+		return typeof value === "object" && value !== null;
 	}
 
-	recalculate() {
-		const newValue = this.compute(...this.dependencies.map((dep) => dep.get()));
-		if (isEqualShallow(this.value, newValue)) return;
+	// Jobs
 
-		this.value = newValue;
-		this.listeners.forEach((callback) => callback(this.value));
+	const MAX_UPDATE_ROUNDS = 100;
+
+	let updateScheduled = false;
+	const pendingUpdates = new Set();
+
+	function scheduleUpdate(job) {
+		pendingUpdates.add(job);
+
+		if (!updateScheduled) {
+			updateScheduled = true;
+			queueMicrotask(runScheduledUpdates);
+		}
+
 	}
-}
 
-class WireElement {
-	static ALLOWED_ATTRIBUTES = {
-		to: ["signal", "expr"],
-		with: ["signal"],
-		for: ["signal", "expr"],
-		each: ["literal"],
-		if: ["signal", "expr"],
-		style: ["literal"],
-		class: ["literal"],
-	};
+	function runScheduledUpdates() {
+		updateScheduled = false;
+		let rounds = 0;
 
-	constructor(el) {
-		this.el = el;
-		this.attributes = {};
-		this.signalUnsubs = [];
-		this.template = null;
-
-		// Extract and validate attributes
-		for (const attrName of this.el.getAttributeNames()) {
-			if (!Object.hasOwn(WireElement.ALLOWED_ATTRIBUTES, attrName)) {
-				throw new WireAttributeError(`<wire> element not allowed attribute '${attrName}'`);
+		while (pendingUpdates.size > 0) {
+			if (++rounds > MAX_UPDATE_ROUNDS) {
+				pendingUpdates.clear();
+				throw new WireCycleError(`Updates did not settle after ${MAX_UPDATE_ROUNDS} rounds, a signal is probably being set from inside its own dependent`);
 			}
-			const allowedTypes = WireElement.ALLOWED_ATTRIBUTES[attrName];
-			const attrValue = this.el.getAttribute(attrName);
-			this.attributes[attrName] = parseAttribute(attrName, attrValue, allowedTypes, "<wire>");
-		}
-
-		const contentAttributes = ["for", "to"];
-		const foundContentAttributes = contentAttributes.filter((a) => Object.hasOwn(this.attributes, a));
-		if (foundContentAttributes.length > 1) {
-			throw new WireAttributeError(`Content attributes ${contentAttributes} are mutually exclusive but found: ${foundContentAttributes}`);
-		}
-
-		if (Object.hasOwn(this.attributes, "each") && !Object.hasOwn(this.attributes, "for")) {
-			throw new WireAttributeError(`Attribute 'each' requires 'for', found attributes: ${JSON.stringify(this.attributes)}`);
-		}
-
-		if (Object.hasOwn(this.attributes, "to") && this.el.innerHTML.length > 0) {
-			throw new WireAttributeError(`Cannot use 'to' if element has HTML content`);
-		}
-
-		const foundSignalAttributes = Object.values(this.attributes).filter((a) => a.type == "signal");
-		if (foundSignalAttributes.length == 0 && Object.hasOwn(this.attributes, "if")) {
-			console.warn(`prefer against using 'if' unless you also reference a signal, found attributes: ${JSON.stringify(this.attributes)}`);
-		}
-
-		// Store HTML content as template if any attribute rerenders
-		if (Object.hasOwn(this.attributes, "for") || Object.hasOwn(this.attributes, "with") || Object.hasOwn(this.attributes, "if")) {
-			this.template = this.el.innerHTML;
-			this.el.innerHTML = "";
-		}
-
-		// Subscribe each signal
-		for (const attrName in this.attributes) {
-			if (this.attributes[attrName].type === "signal") {
-				const signal = this.attributes[attrName].signal;
-				this.signalUnsubs.push(signal.listen(this.render.bind(this)));
-			}
-		}
-
-		this.render();
-	}
-
-	dispose() {
-		for (const unsub of this.signalUnsubs) unsub();
-		this.signalUnsubs = [];
-	}
-
-	render() {
-		// Conditional rendering on if
-		if (Object.hasOwn(this.attributes, "if")) {
-			let toRender = controller.evaluateAttribute(this.attributes.if);
-			if (!toRender) {
-				this.el.style.display = "none";
-				this.el.innerHTML = "";
-				return;
-			}
-		}
-
-		this.el.style = this.attributes.style?.value;
-
-		// Directly render signal value
-		if (Object.hasOwn(this.attributes, "to")) {
-			this.el.innerHTML = controller.evaluateAttribute(this.attributes.to);
-			controller.mountElements(this.el);
-			return;
-		}
-
-		// Hydrate template for each item in list
-		if (Object.hasOwn(this.attributes, "for")) {
-			const list = controller.evaluateAttribute(this.attributes.for);
-			this.el.innerHTML = list.reduce((acc, item) => {
-				let values = Object.hasOwn(this.attributes, "each") ? { [this.attributes.each.value]: item } : {};
-				return acc + controller.hydrateTemplate(this.template, values);
-			}, "");
-			controller.mountElements(this.el);
-		}
-
-		// Hydrate template
-		else if (Object.hasOwn(this.attributes, "with")) {
-			this.el.innerHTML = controller.hydrateTemplate(this.template);
-			controller.mountElements(this.el);
-		}
-	}
-}
-
-class ComponentElement {
-	static ALLOWED_ATTRIBUTES = {
-		name: ["literal"],
-		instance: ["flag"],
-		style: ["literal"],
-		class: ["literal"],
-	};
-
-	constructor(el) {
-		this.el = el;
-		this.attributes = {};
-		this.argAttributes = {};
-		this.signalUnsubs = [];
-		this.isInstance = false;
-
-		// Extract and validate attributes
-		let argAttributeNames = [];
-		for (const attrName of this.el.getAttributeNames()) {
-			if (attrName.startsWith("arg:")) {
-				argAttributeNames.push(attrName);
-				continue;
-			}
-
-			if (!Object.hasOwn(ComponentElement.ALLOWED_ATTRIBUTES, attrName)) {
-				throw new WireAttributeError(`<component> element not allowed attribute '${attrName}'`);
-			}
-
-			const allowedTypes = ComponentElement.ALLOWED_ATTRIBUTES[attrName];
-			const attrValue = this.el.getAttribute(attrName);
-			this.attributes[attrName] = parseAttribute(attrName, attrValue, allowedTypes, "<component>");
-		}
-
-		this.isInstance = Object.hasOwn(this.attributes, "instance");
-
-		for (const attrName of argAttributeNames) {
-			const allowedTypes = this.isInstance ? ["signal", "literal", "expr"] : ["flag"];
-			const attrValue = this.el.getAttribute(attrName);
-			const realAttrName = attrName.slice(4);
-			this.argAttributes[realAttrName] = parseAttribute(attrName, attrValue, allowedTypes, "<component>");
-		}
-
-		if (!Object.hasOwn(this.attributes, "name")) {
-			throw new WireAttributeError("Component element requires a 'name' attribute");
-		}
-
-		// If we are a template then register template and hide
-		if (!this.isInstance) {
-			controller.registerComponentTemplate(this.attributes.name.value, { template: this.el.innerHTML, args: Object.keys(this.argAttributes) });
-			this.el.innerHTML = "";
-			this.el.style.display = "none";
-			return;
-		}
-
-		// Otherwise we are an instance, listen to signal attributes
-		for (const argAttrName in this.argAttributes) {
-			if (this.argAttributes[argAttrName].type == "signal") {
-				const signal = this.argAttributes[argAttrName].signal;
-				this.signalUnsubs.push(signal.listen(this.render.bind(this)));
-			}
-		}
-
-		this.render();
-	}
-
-	dispose() {
-		for (const unsub of this.signalUnsubs) unsub();
-		this.signalUnsubs = [];
-	}
-
-	render() {
-		const componentTemplate = controller.resolveComponentTemplate(this.attributes.name.value);
-
-		// Collect required arguments for the template
-		const values = {};
-		for (const arg of componentTemplate.args) {
-			if (Object.hasOwn(this.argAttributes, arg)) {
-				values[arg] = controller.evaluateAttribute(this.argAttributes[arg]);
-			} else {
-				values[arg] = null;
-			}
-		}
-
-		// Hydrate and render template
-		this.el.innerHTML = controller.hydrateTemplate(componentTemplate.template, values);
-		controller.mountElements(this.el);
-	}
-}
-
-class WireController {
-	static elementRegistry = { wire: WireElement, component: ComponentElement };
-
-	signalDict = {};
-	componentTemplateDict = {};
-	compiledTemplateCache = new Map();
-	mountedElements = new WeakSet();
-	observer = null;
-
-	constructor() {
-		addEventListener("load", () => {
-			this.mountElements(document);
-			this.startCleanupObserver();
-		});
-	}
-
-	mountElements(parent) {
-		// Grab all outermost wire.js children elements
-		const elementSelector = Object.keys(WireController.elementRegistry).join(",");
-		const allElements = [...parent.querySelectorAll(elementSelector)];
-		const outermostElements = allElements.filter((el) => !allElements.some((other) => other !== el && other.contains(el)));
-
-		// Mount each if they are not already mounted
-		for (const el of outermostElements) {
-			this.mountElement(el);
-		}
-	}
-
-	mountElement(element) {
-		if (this.mountedElements.has(element)) return;
-		this.mountedElements.add(element);
-		const instance = new WireController.elementRegistry[element.localName](element);
-		element.__wireInstance = instance;
-	}
-
-	registerSignal(name, signal) {
-		if (Object.hasOwn(this.signalDict, name)) throw new WireRegistrationError(`Signal '${name}' is already registered`);
-		this.signalDict[name] = signal;
-	}
-
-	resolveSignal(name) {
-		if (!Object.hasOwn(this.signalDict, name)) throw new WireRegistrationError(`Signal '${name}' is not registered`);
-		return this.signalDict[name];
-	}
-
-	registerComponentTemplate(name, component) {
-		if (Object.hasOwn(this.componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is already registered`);
-		this.componentTemplateDict[name] = component;
-	}
-
-	resolveComponentTemplate(name) {
-		if (!Object.hasOwn(this.componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is not registered`);
-		return this.componentTemplateDict[name];
-	}
-
-	hydrateTemplate(template, variables = {}) {
-		const templateParts = this.compileTemplate(template);
-
-		let result = "";
-
-		for (const part of templateParts) {
-			if (part.type === "text") {
-				result += part.value;
-			} else {
-				result += evalWithVariables(part.value, variables);
-			}
-		}
-
-		return result;
-	}
-
-	evaluateAttribute(attr) {
-		if (attr.type == "signal") {
-			return attr.signal.get();
-		} else if (attr.type == "literal") {
-			return attr.value;
-		} else if (attr.type == "expr") {
-			const content = attr.value.slice(2, attr.value.length - 2);
-			return evalWithVariables(content);
-		}
-	}
-
-	startCleanupObserver() {
-		// Track when any DOM mutation occurs
-		this.observer = new MutationObserver((mutations) => {
-			for (const mutation of mutations) {
-				for (const node of mutation.removedNodes) {
-					if (node.nodeType !== Node.ELEMENT_NODE) continue;
-
-					// Dispose any mounted wire.js elements
-					const allNodes = [node, ...(node.querySelectorAll?.("wire,component") ?? [])];
-					for (const el of allNodes) {
-						el.__wireInstance?.dispose();
-					}
+			const jobs = [...pendingUpdates];
+			pendingUpdates.clear();
+		
+			for (const job of jobs) {
+				try {
+					job.runUpdate();
+				} catch (error) {
+					console.error(error);
 				}
 			}
-		});
-
-		this.observer.observe(document.body, { childList: true, subtree: true });
+		}
 	}
 
-	compileTemplate(template) {
-		if (this.compiledTemplateCache.has(template)) {
-			return this.compiledTemplateCache.get(template);
-		}
+	// DOM / Expressions
 
-		let parts = [];
-		let i = 0;
-
-		while (i < template.length) {
-			const start = template.indexOf("{{", i);
-
-			if (start === -1) {
-				parts.push({ type: "text", value: template.slice(i) });
-				break;
-			}
-
-			if (start > i) {
-				parts.push({ type: "text", value: template.slice(i, start) });
-			}
-
-			const end = template.indexOf("}}", start);
-			if (end === -1) throw new WireHydrationError("Missing closing }}");
-
-			const code = template.slice(start + 2, end).trim();
-			parts.push({ type: "expr", value: code });
-
-			i = end + 2;
-		}
-
-		this.compiledTemplateCache.set(template, parts);
-		return parts;
+	function escapeExpressionForDom(value) {
+		const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+		return String(value ?? "").replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
 	}
-}
 
-const controller = new WireController();
+	function decodeDomForExpression(code) {
+		const ENTITY_DECODES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
+		return code.replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => ENTITY_DECODES[entity]);
+	}
 
-window.Wire = {
-	controller: {
-		mountElement: controller.mountElement,
-		mountElements: controller.mountElements,
-	},
-	State,
-	Computed,
-};
+	function captureFocusRestorer(root) {
+		// Rebuilding the children destroys the focused field, so put focus, typed text and caret back on its replacement
+		const active = document.activeElement;
+		if (!active || active === root || !root.contains(active)) return null;
+
+		const path = [];
+		for (let node = active; node !== root; node = node.parentNode) {
+			path.unshift(Array.prototype.indexOf.call(node.parentNode.childNodes, node));
+		}
+
+		const saved = { tag: active.localName, id: active.id, name: active.getAttribute("name"), type: active.type, value: active.value, defaultValue: active.defaultValue, checked: active.checked, defaultChecked: active.defaultChecked };
+		try {
+			saved.selection = [active.selectionStart, active.selectionEnd, active.selectionDirection];
+		} catch {
+			saved.selection = null;
+		}
+
+		return () => {
+			let node = root;
+			for (const index of path) node = node?.childNodes[index];
+			if (!node || node.localName !== saved.tag || node.id !== saved.id || node.getAttribute("name") !== saved.name || node.type !== saved.type) return;
+
+			// Typed text is only restored when the new markup did not set a different value itself
+			if (saved.value !== undefined && node.defaultValue === saved.defaultValue) node.value = saved.value;
+			if (node.defaultChecked === saved.defaultChecked) node.checked = saved.checked;
+
+			node.focus({ preventScroll: true });
+			if (saved.selection?.[0] != null) {
+				try {
+					node.setSelectionRange(...saved.selection);
+				} catch {
+					// not a text field
+				}
+			}
+		};
+	}
+
+	function parseAttribute(attrName, attrValue, allowedTypes, source) {
+		let attr = {};
+		const tokens = attrValue.trim().split(/\s+/);
+		if (allowedTypes.includes("signals") && attrValue.trim() && tokens.every((token) => token.startsWith("@") && !token.startsWith("@{"))) {
+			const signals = tokens.map((token) => controller.resolveSignal(token.slice(1)));
+			attr = { type: "signals", signals, value: attrValue };
+		} else if (attrValue.startsWith("@{")) {
+			if (!attrValue.endsWith("}")) throw new WireAttributeError("An argument starting with '@{' must end with '}'");
+			attr = { type: "expr", code: attrValue.slice(2, -1), value: attrValue };
+		} else if (attrValue.startsWith("@")) {
+			const signal = controller.resolveSignal(attrValue.slice(1));
+			attr = { type: "signal", signal, value: attrValue };
+		} else if (attrValue.includes("{{")) {
+			throw new WireAttributeError(`'{{ }}' is only for template text, found in attribute '${attrName}' on ${source} elements, use '@{ expr }' for an expression`);
+		} else if (attrValue.length == 0) {
+			attr = { type: "flag" };
+		} else {
+			attr = { type: "literal", value: attrValue };
+		}
+		if (!allowedTypes.includes(attr.type))
+			throw new WireAttributeError(
+				`Attribute '${attrName}' cannot be type '${attr.type}' with value '${attrValue}' on ${source} elements (allowed=${JSON.stringify(allowedTypes)})`,
+			);
+		return attr;
+	}
+
+	function recordSignalVersions(signals) {
+		return new Map(
+			signals.map((signal) => {
+				signal.recomputeIfStale?.();
+				return [signal, signal.version];
+			}),
+		);
+	}
+
+	function anySignalChanged(lastSeenVersions) {
+		for (const [signal, version] of lastSeenVersions) {
+			signal.recomputeIfStale?.();
+			if (signal.version !== version) return true;
+		}
+		return false;
+	}
+
+	class WireHydrationError extends Error { }
+
+	class WireAttributeError extends Error { }
+
+	class WireRegistrationError extends Error { }
+
+	class WireCycleError extends Error { }
+
+	class Signal {
+		constructor(name) {
+			this.name = name;
+			this.value = undefined;
+			this.version = 0;
+			this.sameObjectSetAtVersion = 0;
+			this.listeners = new Set();
+			this.dependents = new Set();
+
+			controller.registerSignal(name, this);
+		}
+
+		get subscriberCount() {
+			return this.listeners.size + this.dependents.size;
+		}
+
+		get() {
+			return this.value;
+		}
+
+		listen(callback) {
+			const listener = (value) => callback(value);
+			this.listeners.add(listener);
+			this.onSubscriberCountChanged();
+			return () => {
+				this.listeners.delete(listener);
+				this.onSubscriberCountChanged();
+			};
+		}
+
+		addDependent(dependent) {
+			this.dependents.add(dependent);
+			this.onSubscriberCountChanged();
+		}
+
+		removeDependent(dependent) {
+			this.dependents.delete(dependent);
+			this.onSubscriberCountChanged();
+		}
+
+		onSubscriberCountChanged() { }
+
+		notifySubscribers() {
+			for (const listener of [...this.listeners]) listener(this.value);
+			for (const dependent of [...this.dependents]) dependent.onDependencyChanged();
+		}
+	}
+
+	class State extends Signal {
+		constructor(name, value) {
+			super(name);
+			this.value = value;
+		}
+
+		set(value) {
+			// The same object may have been mutated in place before being set again
+			const sameReference = Object.is(this.value, value);
+			if (sameReference ? !isObjectLike(value) : isEqualShallow(this.value, value)) return;
+
+			this.value = value;
+			this.version++;
+			if (sameReference) this.sameObjectSetAtVersion = this.version;
+			this.notifySubscribers();
+		}
+
+		update(fn) {
+			this.set(fn(this.value));
+		}
+	}
+
+	class Computed extends Signal {
+		constructor(name, dependencies, compute) {
+			super(name);
+			this.dependencies = dependencies;
+			this.compute = compute;
+			this.lastSeenVersions = new Map();
+			this.isStale = true;
+			this.isSubscribedToDependencies = false;
+
+			this.recomputeIfStale();
+			this.lastNotifiedVersion = this.version;
+		}
+
+		get() {
+			this.recomputeIfStale();
+			return this.value;
+		}
+
+		listen(callback) {
+			if (this.listeners.size === 0) {
+				this.recomputeIfStale();
+				this.lastNotifiedVersion = this.version;
+			}
+			return super.listen(callback);
+		}
+
+		recomputeIfStale() {
+			// Without subscribers nothing invalidates us, so staleness is found by comparing dependency versions
+			if (!this.isStale && (this.isSubscribedToDependencies || !anySignalChanged(this.lastSeenVersions))) return;
+			this.recompute();
+		}
+
+		recompute() {
+			const value = this.compute(...this.dependencies.map((dep) => dep.get()));
+			this.lastSeenVersions = recordSignalVersions(this.dependencies);
+			this.isStale = false;
+			const sameReference = Object.is(this.value, value);
+			if (sameReference ? !isObjectLike(value) : isEqualShallow(this.value, value)) return;
+
+			this.value = value;
+			this.version++;
+			if (sameReference) this.sameObjectSetAtVersion = this.version;
+		}
+
+		onSubscriberCountChanged() {
+			const shouldSubscribe = this.subscriberCount > 0;
+			if (shouldSubscribe === this.isSubscribedToDependencies) return;
+
+			if (shouldSubscribe) {
+				this.recomputeIfStale();
+				this.isSubscribedToDependencies = true;
+				for (const dep of this.dependencies) dep.addDependent(this);
+			} else {
+				this.isSubscribedToDependencies = false;
+				for (const dep of this.dependencies) dep.removeDependent(this);
+			}
+		}
+
+		onDependencyChanged() {
+			if (this.isStale) return;
+			this.isStale = true;
+			if (this.listeners.size > 0) scheduleUpdate(this);
+			for (const dependent of [...this.dependents]) dependent.onDependencyChanged();
+		}
+
+		runUpdate() {
+			this.recomputeIfStale();
+			if (this.version === this.lastNotifiedVersion) return;
+
+			this.lastNotifiedVersion = this.version;
+			for (const listener of [...this.listeners]) listener(this.value);
+		}
+
+		dispose() {
+			this.isSubscribedToDependencies = false;
+			for (const dep of this.dependencies) dep.removeDependent(this);
+			this.listeners.clear();
+		}
+	}
+
+	class SignalWatcher {
+		constructor(callback, signals) {
+			this.callback = callback;
+			this.signals = [...new Set(signals)];
+			this.lastSeenVersions = new Map();
+			this.disposed = false;
+
+			for (const signal of this.signals) signal.addDependent(this);
+			this.run();
+		}
+
+		onDependencyChanged() {
+			if (!this.disposed) scheduleUpdate(this);
+		}
+
+		runUpdate() {
+			if (!this.disposed && anySignalChanged(this.lastSeenVersions)) this.run();
+		}
+
+		run() {
+			// A source set with the same object may have been mutated in place, so the output cannot be assumed unchanged
+			const forceRebuild = this.signals.some((signal) => {
+				signal.recomputeIfStale?.();
+				return signal.sameObjectSetAtVersion > (this.lastSeenVersions.get(signal) ?? Infinity);
+			});
+			this.lastSeenVersions = recordSignalVersions(this.signals);
+			this.callback(forceRebuild);
+		}
+
+		dispose() {
+			this.disposed = true;
+			for (const signal of this.signals) signal.removeDependent(this);
+		}
+	}
+
+	class WireElement {
+		static ALLOWED_ATTRIBUTES = {
+			to: ["signal"],
+			with: ["signals"],
+			for: ["signal", "expr"],
+			each: ["literal"],
+			if: ["signal", "expr"],
+			else: ["flag"],
+			style: ["literal"],
+			class: ["literal"],
+		};
+
+		constructor(el, scope) {
+			this.el = el;
+			this.scope = scope;
+			this.attributes = {};
+			this.template = null;
+			this.lastRenderedChunks = null;
+			this.baseDisplay = el.style.display;
+
+			// Extract and validate attributes
+			for (const attrName of this.el.getAttributeNames()) {
+				if (!Object.hasOwn(WireElement.ALLOWED_ATTRIBUTES, attrName)) {
+					throw new WireAttributeError(`<wire> element not allowed attribute '${attrName}'`);
+				}
+				const allowedTypes = WireElement.ALLOWED_ATTRIBUTES[attrName];
+				const attrValue = this.el.getAttribute(attrName);
+				this.attributes[attrName] = PLAIN_HTML_ATTRIBUTES.includes(attrName)
+					? { type: "literal", value: attrValue }
+					: parseAttribute(attrName, attrValue, allowedTypes, "<wire>");
+			}
+
+			const contentAttributes = ["for", "to"];
+			const foundContentAttributes = contentAttributes.filter((a) => this.has(a));
+			if (foundContentAttributes.length > 1) {
+				throw new WireAttributeError(`Content attributes ${contentAttributes} are mutually exclusive but found: ${foundContentAttributes}`);
+			}
+
+			if (this.has("each") && !this.has("for")) {
+				throw new WireAttributeError(`Attribute 'each' requires 'for', found attributes: ${JSON.stringify(this.attributes)}`);
+			}
+
+			if (this.has("to") && this.el.innerHTML.length > 0) {
+				throw new WireAttributeError(`Cannot use 'to' if element has HTML content`);
+			}
+
+			if (this.has("else")) {
+				const previous = this.el.previousElementSibling?.__wireInstance;
+				if (!(previous instanceof WireElement) || !(previous.has("if") || previous.has("else"))) {
+					throw new WireAttributeError(`Attribute 'else' requires the previous sibling to be a <wire> with 'if' or 'else'`);
+				}
+			}
+
+			// The element's own content is the template
+			if (!this.has("to")) {
+				this.template = this.el.innerHTML;
+				this.el.innerHTML = "";
+			}
+
+			if (this.has("if") && Object.keys(scope).length === 0 && this.getWatchedSignals().length === 0) {
+				console.warn(`prefer against using 'if' unless you also reference a signal, found attributes: ${JSON.stringify(this.attributes)}`);
+			}
+
+			this.watcher = new SignalWatcher((forceRebuild) => this.render(forceRebuild), this.getWatchedSignals());
+		}
+
+		getWatchedSignals() {
+			const own = [];
+			for (const attrName of ["to", "for", "if"]) {
+				if (this.has(attrName) && this.attributes[attrName].type === "signal") own.push(this.attributes[attrName].signal);
+			}
+			if (this.has("with")) own.push(...this.attributes.with.signals);
+			const previous = this.has("else") ? this.el.previousElementSibling.__wireInstance.watchedSignals() : [];
+			return [...own, ...previous];
+		}
+
+		has(attrName) {
+			return Object.hasOwn(this.attributes, attrName);
+		}
+
+		dispose() {
+			this.watcher.dispose();
+		}
+
+		isThisIfBranchSatisfied() {
+			return this.has("if") ? Boolean(controller.evaluateAttribute(this.attributes.if, this.scope)) : true;
+		}
+
+		isThisOrPrevBranchSatisfied() {
+			return (this.has("else") && this.isPrevBranchSatisfied()) || this.isThisIfBranchSatisfied();
+		}
+
+		isPrevBranchSatisfied() {
+			return this.el.previousElementSibling?.__wireInstance?.isThisOrPrevBranchSatisfied() ?? false;
+		}
+
+		shouldBeVisible() {
+			if (this.has("else") && this.isPrevBranchSatisfied()) return false;
+			return this.isThisIfBranchSatisfied();
+		}
+
+		render(forceRebuild) {
+			if (!this.shouldBeVisible()) {
+				this.el.style.display = "none";
+				controller.clearElementContent(this);
+				return;
+			}
+			this.el.style.display = this.baseDisplay;
+
+			if (this.has("to")) {
+				const text = String(this.attributes.to.signal.get() ?? "");
+				controller.setElementContent(this, [{ html: escapeExpressionForDom(text), scope: this.scope }], forceRebuild);
+				return;
+			}
+
+			if (this.has("for")) {
+				const items = Array.from(controller.evaluateAttribute(this.attributes.for, this.scope));
+				const chunks = items.map((item) => {
+					const scope = this.has("each") ? { ...this.scope, [this.attributes.each.value]: item } : this.scope;
+					return { html: controller.hydrateTemplate(this.template, scope), scope, data: item };
+				});
+				controller.setElementContent(this, chunks, forceRebuild);
+			} else {
+				controller.setElementContent(this, [{ html: controller.hydrateTemplate(this.template, this.scope), scope: this.scope }], forceRebuild);
+			}
+		}
+	}
+
+	class ComponentElement {
+		static ALLOWED_ATTRIBUTES = {
+			name: ["literal"],
+			instance: ["flag"],
+			style: ["literal"],
+			class: ["literal"],
+		};
+
+		constructor(el, scope) {
+			this.el = el;
+			this.scope = scope;
+			this.attributes = {};
+			this.argAttributes = {};
+			this.watcher = null;
+			this.lastRenderedChunks = null;
+			this.isInstance = false;
+
+			// Extract and validate attributes
+			let argAttributeNames = [];
+			for (const attrName of this.el.getAttributeNames()) {
+				if (attrName.startsWith("arg:")) {
+					argAttributeNames.push(attrName);
+					continue;
+				}
+
+				if (!Object.hasOwn(ComponentElement.ALLOWED_ATTRIBUTES, attrName)) {
+					throw new WireAttributeError(`<component> element not allowed attribute '${attrName}'`);
+				}
+
+				const allowedTypes = ComponentElement.ALLOWED_ATTRIBUTES[attrName];
+				const attrValue = this.el.getAttribute(attrName);
+				this.attributes[attrName] = PLAIN_HTML_ATTRIBUTES.includes(attrName)
+					? { type: "literal", value: attrValue }
+					: parseAttribute(attrName, attrValue, allowedTypes, "<component>");
+			}
+
+			this.isInstance = Object.hasOwn(this.attributes, "instance");
+
+			for (const attrName of argAttributeNames) {
+				const allowedTypes = this.isInstance ? ["signal", "literal", "expr"] : ["flag"];
+				const attrValue = this.el.getAttribute(attrName);
+				const realAttrName = attrName.slice(4);
+				this.argAttributes[realAttrName] = parseAttribute(attrName, attrValue, allowedTypes, "<component>");
+			}
+
+			if (!Object.hasOwn(this.attributes, "name")) {
+				throw new WireAttributeError("Component element requires a 'name' attribute");
+			}
+
+			// If we are a template then register template and hide
+			if (!this.isInstance) {
+				controller.registerComponentTemplate(this.attributes.name.value, { template: this.el.innerHTML, args: Object.keys(this.argAttributes) });
+				this.el.innerHTML = "";
+				this.el.style.display = "none";
+				return;
+			}
+
+			this.watcher = new SignalWatcher((forceRebuild) => this.render(forceRebuild), this.watchedSignals());
+		}
+
+		watchedSignals() {
+			return Object.values(this.argAttributes)
+				.filter((attr) => attr.type === "signal")
+				.map((attr) => attr.signal);
+		}
+
+		dispose() {
+			this.watcher?.dispose();
+		}
+
+		render(forceRebuild) {
+			const componentTemplate = controller.resolveComponentTemplate(this.attributes.name.value);
+
+			// Collect required arguments for the template
+			const values = {};
+			for (const arg of componentTemplate.args) {
+				if (Object.hasOwn(this.argAttributes, arg)) {
+					values[arg] = controller.evaluateAttribute(this.argAttributes[arg], this.scope);
+				} else {
+					values[arg] = null;
+				}
+			}
+
+			controller.setElementContent(this, [{
+				html: controller.hydrateTemplate(componentTemplate.template, values),
+				scope: values,
+				data: values
+			}], forceRebuild);
+		}
+	}
+
+	class WireController {
+		static elementRegistry = { wire: WireElement, component: ComponentElement };
+		static elementSelector = Object.keys(WireController.elementRegistry).join(",");
+		signalDict = {};
+		componentTemplateDict = {};
+		compiledTemplateCache = new Map();
+		mountedElements = new WeakSet();
+		domObserver = null;
+
+		constructor() {
+			const start = () => {
+				this.mountElements(document);
+				this.startDomObserver();
+			};
+			if (document.readyState === "complete") queueMicrotask(start);
+			else addEventListener("load", start);
+		}
+
+		// Element lifetime
+
+		mountElements(parent, scope = {}) {
+			// Grab all outermost wire.js children elements
+			const allElements = [...parent.querySelectorAll(WireController.elementSelector)];
+			const outermostElements = allElements.filter((el) => !allElements.some((other) => other !== el && other.contains(el)));
+
+			// Mount each if they are not already mounted
+			for (const el of outermostElements) {
+				this.mountElement(el, scope);
+			}
+		}
+
+		mountElement(element, scope = {}) {
+			if (this.mountedElements.has(element)) return;
+			this.mountedElements.add(element);
+			element.__wireInstance = new WireController.elementRegistry[element.localName](element, scope);
+		}
+
+		setElementContent(owner, chunks, forceRebuild = false) {
+			// Each chunk is parsed on its own so the elements inside it can be mounted with that chunk's scope
+			const previous = owner.lastRenderedChunks;
+			if (!forceRebuild && previous && previous.length === chunks.length && previous.every((p, i) => p.html === chunks[i].html && isEqualShallow(p.data, chunks[i].data))) return;
+
+			const fragment = document.createDocumentFragment();
+			for (const { html, scope } of chunks) {
+				const template = document.createElement("template");
+				template.innerHTML = html;
+				this.mountElements(template.content, scope);
+				fragment.append(template.content);
+			}
+
+			const restoreFocus = captureFocusRestorer(owner.el);
+			this.disposeElement(owner.el);
+			owner.el.replaceChildren(fragment);
+			restoreFocus?.();
+			owner.lastRenderedChunks = chunks.map(({ html, data }) => ({ html, data }));
+		}
+
+		clearElementContent(owner) {
+			owner.lastRenderedChunks = null;
+			this.disposeElement(owner.el);
+			owner.el.replaceChildren();
+		}
+
+		disposeElement(el) {
+			for (const wireEl of el.querySelectorAll(WireController.elementSelector)) {
+				wireEl.__wireInstance?.dispose();
+			}
+		}
+
+		startDomObserver() {
+			// Track when any DOM mutation occurs
+			this.domObserver = new MutationObserver((mutations) => {
+				for (const mutation of mutations) {
+					for (const node of mutation.removedNodes) {
+						if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+						// Dispose any mounted wire.js elements
+						const allNodes = [node, ...(node.querySelectorAll?.(WireController.elementSelector) ?? [])];
+						for (const el of allNodes) {
+							el.__wireInstance?.dispose();
+						}
+					}
+				}
+			});
+
+			this.domObserver.observe(document.body, { childList: true, subtree: true });
+		}
+
+		// Data
+
+		registerSignal(name, signal) {
+			if (Object.hasOwn(this.signalDict, name)) throw new WireRegistrationError(`Signal '${name}' is already registered`);
+			this.signalDict[name] = signal;
+		}
+
+		resolveSignal(name) {
+			if (!Object.hasOwn(this.signalDict, name)) throw new WireRegistrationError(`Signal '${name}' is not registered`);
+			return this.signalDict[name];
+		}
+
+		// Templates
+
+		registerComponentTemplate(name, component) {
+			if (Object.hasOwn(this.componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is already registered`);
+			this.componentTemplateDict[name] = component;
+		}
+
+		resolveComponentTemplate(name) {
+			if (!Object.hasOwn(this.componentTemplateDict, name)) throw new WireRegistrationError(`Component '${name}' is not registered`);
+			return this.componentTemplateDict[name];
+		}
+
+		hydrateTemplate(template, scope = {}) {
+			const templateParts = this.parseTemplate(template);
+
+			let result = "";
+
+			for (const part of templateParts) {
+				if (part.type === "text") {
+					result += part.value;
+				} else {
+					const value = evalWithVariables(part.value, scope);
+					result += part.raw ? String(value ?? "") : escapeExpressionForDom(value);
+				}
+			}
+
+			return result;
+		}
+
+		parseTemplate(template) {
+			if (this.compiledTemplateCache.has(template)) {
+				return this.compiledTemplateCache.get(template);
+			}
+
+			// Everything is substituted as plain text, except the content of a nested <wire> or <component>:
+			// that element hydrates its own content later, with its own scope
+			const wireTagPattern = /<(\/?)(?:wire|component)\b(?:\{\{[\s\S]*?\}\}|[^>"]|"[^"]*")*>/gi;
+			const parts = [];
+			let nestedDepth = 0;
+			let compiledUpTo = 0;
+			let nestedContentStart = 0;
+			let match;
+
+			while ((match = wireTagPattern.exec(template)) !== null) {
+				if (match[1]) {
+					if (nestedDepth > 0 && --nestedDepth === 0) {
+						parts.push({ type: "text", value: template.slice(nestedContentStart, match.index) });
+						compiledUpTo = match.index;
+					}
+					continue;
+				}
+				if (nestedDepth === 0) {
+					const tagEnd = match.index + match[0].length;
+					parts.push(...this.parseTemplateInterpolations(template.slice(compiledUpTo, tagEnd)));
+					nestedContentStart = tagEnd;
+				}
+				nestedDepth++;
+			}
+
+			if (nestedDepth > 0) parts.push({ type: "text", value: template.slice(nestedContentStart) });
+			else parts.push(...this.parseTemplateInterpolations(template.slice(compiledUpTo)));
+
+			this.compiledTemplateCache.set(template, parts);
+			return parts;
+		}
+
+		parseTemplateInterpolations(text) {
+			const parts = [];
+			let i = 0;
+
+			while (i < text.length) {
+				const start = text.indexOf("{{", i);
+				if (start === -1) break;
+
+				const raw = text.startsWith("{{{", start);
+				const open = raw ? "{{{" : "{{";
+				const close = raw ? "}}}" : "}}";
+
+				const end = text.indexOf(close, start + open.length);
+				if (end === -1) throw new WireHydrationError(`Missing closing ${close}`);
+
+				if (start > i) parts.push({ type: "text", value: text.slice(i, start) });
+				parts.push({ type: "expr", value: decodeDomForExpression(text.slice(start + open.length, end)).trim(), raw });
+
+				i = end + close.length;
+			}
+
+			if (i < text.length) parts.push({ type: "text", value: text.slice(i) });
+			return parts;
+		}
+
+		evaluateAttribute(attr, scope = {}) {
+			if (attr.type == "signal") {
+				return attr.signal.get();
+			} else if (attr.type == "literal") {
+				return attr.value;
+			} else if (attr.type == "expr") {
+				return evalWithVariables(attr.code, scope);
+			}
+		}
+	}
+
+	const controller = new WireController();
+
+	window.Wire = Object.freeze({
+		Signal,
+		State,
+		Computed,
+		flush: runScheduledUpdates,
+		signalNames: () => Object.keys(controller.signalDict),
+		controller: Object.freeze({
+			mountElement: (element) => controller.mountElement(element),
+			mountElements: (parent) => controller.mountElements(parent),
+		}),
+		errors: Object.freeze({
+			WireHydrationError,
+			WireAttributeError,
+			WireRegistrationError,
+			WireCycleError
+		}),
+	});
+})();

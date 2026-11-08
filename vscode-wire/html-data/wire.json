@@ -3,39 +3,44 @@
 	"tags": [
 		{
 			"name": "wire",
-			"description": "Wire.js reactive element. Renders from signals/expressions. Content attributes `for` and `to` are mutually exclusive.",
+			"description": "Wire.js reactive element. Its own content is a template: `{{ expr }}` writes an escaped result, `{{{ expr }}}` writes unescaped markup. Re-renders only for the signals named in `to`, `for`, `if` and `with`. Always close it, `<wire />` is not valid HTML.",
 			"attributes": [
 				{
 					"name": "to",
-					"description": "Directly render a value as the element's HTML. Takes a signal (`@name`) or expression (`{{ expr }}`). Cannot be used if the element has HTML content; mutually exclusive with `for`."
+					"description": "Write a signal's value into the element as escaped text. Takes a signal (`@name`) only. Cannot be used if the element has content; mutually exclusive with `for`."
 				},
 				{
 					"name": "with",
-					"description": "Re-render the element's HTML template whenever this signal (`@name`) changes. Signal only."
+					"description": "Re-render the element's template whenever any of these signals changes. One or more signals separated by spaces (`@a @b`). List every signal the template reads, or it goes stale."
 				},
 				{
 					"name": "for",
-					"description": "Render the element's HTML template once per item of a list. Takes a signal (`@name`) or expression (`{{ expr }}`) yielding an array. Mutually exclusive with `to`."
+					"description": "Render the element's content once per item of an array. Takes a signal (`@name`) or an expression (`@{ expr }`). Mutually exclusive with `to`. Loop variables are in scope for nested elements."
 				},
 				{
 					"name": "each",
-					"description": "Name of the variable that holds the current item inside a `for` template. Literal only; requires `for`."
+					"description": "Name of the variable that holds the current item inside a `for`. Literal only; requires `for`."
 				},
 				{
 					"name": "if",
-					"description": "Only render when truthy. Takes a signal (`@name`) or expression (`{{ expr }}`). Reference a signal (e.g. with `with`) so it re-evaluates."
+					"description": "Only render while truthy, otherwise the element is emptied and hidden. Takes a signal (`@name`) or an expression (`@{ expr }`). An expression only re-evaluates for the signals named in the element's attributes."
 				},
-				{ "name": "style", "description": "Inline style applied to the element. Literal only." },
-				{ "name": "class", "description": "CSS classes. Literal only." }
+				{
+					"name": "else",
+					"description": "Render when the directly preceding `<wire>` sibling's `if` (or `else`) was false. May carry its own `if` to chain (`else if`). Flag attribute.",
+					"valueSet": "v"
+				},
+				{ "name": "style", "description": "Inline style. A plain attribute, never parsed as Wire syntax." },
+				{ "name": "class", "description": "CSS classes. A plain attribute, never parsed as Wire syntax." }
 			]
 		},
 		{
 			"name": "component",
-			"description": "Wire.js component. Without `instance` it defines a template (declared args via `arg:name`); with `instance` it renders that template.",
+			"description": "Wire.js component. Without `instance` it defines a template (declared args via `arg:name`); with `instance` it renders that template. A component template sees only its own args and globals. Always close it.",
 			"attributes": [
 				{
 					"name": "name",
-					"description": "Component name. Required. Used to register a template, or to select which template an instance renders."
+					"description": "Component name. Required. Used to register a template, or to select which template an instance renders. Names are global and unique."
 				},
 				{
 					"name": "instance",
@@ -44,10 +49,10 @@
 				},
 				{
 					"name": "arg:",
-					"description": "Component argument, written `arg:<name>`. On a template definition it is a bare flag declaring an argument (e.g. `arg:title`); on an instance it takes a literal, signal (`@name`) or expression (`{{ expr }}`) value. Use `{{name}}` inside the template to read it."
+					"description": "Component argument, written `arg:<name>`. On a template definition it is a bare flag declaring an argument (e.g. `arg:title`); on an instance it takes a literal, a signal (`@name`, reactive) or an expression (`@{ expr }`, typed, evaluated when the instance renders). Arguments left out are `null`. Use `{{ name }}` inside the template to read it."
 				},
-				{ "name": "style", "description": "Inline style applied to the element. Literal only." },
-				{ "name": "class", "description": "CSS classes. Literal only." }
+				{ "name": "style", "description": "Inline style. A plain attribute, never parsed as Wire syntax." },
+				{ "name": "class", "description": "CSS classes. A plain attribute, never parsed as Wire syntax." }
 			]
 		}
 	],

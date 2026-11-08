@@ -44,8 +44,9 @@ async function findDefinitions(regex, originRange) {
 
 const provider = {
 	async provideDefinition(document, position) {
-		// "@signalName" attribute value -> new State("signalName") / new Computed("signalName")
-		const sig = matchAtPosition(document, position, /(?<=["'])@([A-Za-z_$][\w$]*)(?=["'])/g);
+		// "@signalName" inside an attribute value, alone or in a list such as with="@a @b"
+		// -> new State("signalName") / new Computed("signalName")
+		const sig = matchAtPosition(document, position, /(?<=["'\s])@([A-Za-z_$][\w$-]*)(?=["'\s])/g);
 		if (sig) {
 			const name = sig.match[1];
 			const origin = new vscode.Range(position.line, sig.start, position.line, sig.end);

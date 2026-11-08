@@ -2,27 +2,52 @@
 	"Wire: to (signal)": {
 		"prefix": "wire-to",
 		"body": ["<wire to=\"@${1:signal}\"></wire>"],
-		"description": "Render a signal's value directly"
+		"description": "Render a signal's value as escaped text"
 	},
-	"Wire: to (expression)": {
-		"prefix": "wire-to-expr",
-		"body": ["<wire with=\"@${1:signal}\" to=\"{{ ${2:expr} }}\"></wire>"],
-		"description": "Render an expression, updating when a signal changes"
+	"Wire: expression": {
+		"prefix": "wire-expr",
+		"body": ["<wire with=\"@${1:signal}\">{{ ${2:expr} }}</wire>"],
+		"description": "Render an expression, updating when the listed signals change"
+	},
+	"Wire: unescaped markup": {
+		"prefix": "wire-raw",
+		"body": ["<wire with=\"@${1:signal}\">{{{ ${2:html} }}}</wire>"],
+		"description": "Render markup your own code generated, unescaped"
+	},
+	"Wire: once": {
+		"prefix": "wire-once",
+		"body": ["<wire>{{ ${1:expr} }}</wire>"],
+		"description": "Render a template once, with no signals"
 	},
 	"Wire: with (template)": {
 		"prefix": "wire-with",
 		"body": ["<wire with=\"@${1:signal}\">", "\t$0", "</wire>"],
-		"description": "Re-render a template when a signal changes"
+		"description": "Re-render a template when signals change (space separated for several)"
 	},
 	"Wire: for (list)": {
 		"prefix": "wire-for",
 		"body": ["<wire for=\"@${1:list}\" each=\"${2:item}\">", "\t$0", "</wire>"],
 		"description": "Render a template per list item"
 	},
+	"Wire: for (expression)": {
+		"prefix": "wire-for-expr",
+		"body": ["<wire for=\"@{ ${1:expr} }\" with=\"@${2:signal}\" each=\"${3:item}\">", "\t$0", "</wire>"],
+		"description": "Render a template per item of an expression's array"
+	},
 	"Wire: if (conditional)": {
 		"prefix": "wire-if",
-		"body": ["<wire with=\"@${1:signal}\" if=\"{{ ${2:condition} }}\">", "\t$0", "</wire>"],
+		"body": ["<wire if=\"@{ ${1:condition} }\" with=\"@${2:signal}\">", "\t$0", "</wire>"],
 		"description": "Conditionally render a template"
+	},
+	"Wire: else if": {
+		"prefix": "wire-else-if",
+		"body": ["<wire else if=\"@{ ${1:condition} }\" with=\"@${2:signal}\">", "\t$0", "</wire>"],
+		"description": "Render when the previous if was false and this condition holds"
+	},
+	"Wire: else": {
+		"prefix": "wire-else",
+		"body": ["<wire else>", "\t$0", "</wire>"],
+		"description": "Render when the previous if / else if was false"
 	},
 	"Wire: component (definition)": {
 		"prefix": "wire-component",
@@ -32,7 +57,7 @@
 	"Wire: component (instance)": {
 		"prefix": "wire-instance",
 		"body": ["<component instance name=\"${1:name}\" arg:${2:arg}=\"${3:@signal}\"></component>"],
-		"description": "Instantiate a component"
+		"description": "Instantiate a component (argument: @signal, @{ expr } or literal)"
 	},
 	"Wire: State": {
 		"prefix": "wire-state",
@@ -43,5 +68,10 @@
 		"prefix": "wire-computed",
 		"body": ["const ${1:name} = new Wire.Computed(\"${1}\", [${2:dep}], (${3:d}) => ${4:d});"],
 		"description": "Declare a Wire.Computed signal"
+	},
+	"Wire: listen": {
+		"prefix": "wire-listen",
+		"body": ["const stop = ${1:signal}.listen((${2:value}) => {", "\t$0", "});"],
+		"description": "Add a listener, stop() removes it"
 	}
 }

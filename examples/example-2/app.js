@@ -38,20 +38,6 @@ function severityOf(value, warningAt, criticalAt) {
 	return "ok";
 }
 
-function createReferenceStabiliser() {
-	// Wire signals only notify when the value's reference changes, so returning the previous array
-	// while the content is identical stops buttons being rebuilt (and clicks lost) on every tick.
-	let lastJson = null;
-	let lastValue = null;
-	return (nextValue) => {
-		const json = JSON.stringify(nextValue);
-		if (json === lastJson) return lastValue;
-		lastJson = json;
-		lastValue = nextValue;
-		return nextValue;
-	};
-}
-
 //#endregion
 
 //#region Server
@@ -81,7 +67,7 @@ class Server {
 	}
 
 	copyWith(changes) {
-		// Servers are immutable: every change makes a new instance so Wire sees a new reference
+		// Servers are immutable: every change makes a new instance
 		return Object.assign(new Server(), this, changes);
 	}
 
@@ -265,11 +251,6 @@ class ServerFarm {
 			},
 		);
 
-		// Adds the selection highlight so the list re-renders when the selection changes
-		this.serverRows = new Wire.Computed("serverRows", [this.visibleServers, this.selectedName], (servers, selectedName) =>
-			servers.map((server) => server.copyWith({ isSelected: server.name === selectedName })),
-		);
-
 		this.selectedServer = new Wire.Computed("selectedServer", [this.assessedServers, this.selectedName], (servers, selectedName) =>
 			servers.find((server) => server.name === selectedName) ?? null,
 		);
@@ -285,28 +266,24 @@ class ServerFarm {
 			critical: servers.filter((server) => server.severity === "critical").length,
 		}));
 
-		const stabiliseStatusChips = createReferenceStabiliser();
 		this.statusChips = new Wire.Computed("statusChips", [this.statusCounts, this.statusFilter], (counts, activeStatus) =>
-			stabiliseStatusChips(
-				[
-					{ key: "all", label: "All" },
-					{ key: "ok", label: SEVERITY_LABEL.ok },
-					{ key: "warning", label: SEVERITY_LABEL.warning },
-					{ key: "critical", label: SEVERITY_LABEL.critical },
-				].map((chip) => ({ ...chip, count: counts[chip.key], isActive: chip.key === activeStatus })),
-			),
+			[
+				{ key: "all", label: "All" },
+				{ key: "ok", label: SEVERITY_LABEL.ok },
+				{ key: "warning", label: SEVERITY_LABEL.warning },
+				{ key: "critical", label: SEVERITY_LABEL.critical },
+			].map((chip) => ({ ...chip, count: counts[chip.key], isActive: chip.key === activeStatus })),
 		);
 
-		const stabiliseRegionChips = createReferenceStabiliser();
 		this.regionChips = new Wire.Computed("regionChips", [this.assessedServers, this.regionFilter], (servers, activeRegion) =>
-			stabiliseRegionChips(
-				[{ key: "all", label: "All regions", count: servers.length }, ...REGION_NAMES.map((region) => ({ key: region, label: region, count: servers.filter((server) => server.region === region).length }))].map(
-					(chip) => ({ ...chip, isActive: chip.key === activeRegion }),
-				),
+			[{ key: "all", label: "All regions", count: servers.length }, ...REGION_NAMES.map((region) => ({ key: region, label: region, count: servers.filter((server) => server.region === region).length }))].map(
+				(chip) => ({ ...chip, isActive: chip.key === activeRegion }),
 			),
 		);
 
-		this.summaryCards = new Wire.Computed("summaryCards", [this.assessedServers], (servers) => this.#buildSummaryCards(servers));
+		this.summaryCards = new Wire.Computed("summaryCards", [this.assessedServers, this.thresholds, this.fleetHistory], (servers, thresholds, history) =>
+			this.#buildSummaryCards(servers, thresholds, history),
+		);
 
 		this.fleetCpuChartSvg = new Wire.Computed("fleetCpuChartSvg", [this.fleetHistory, this.thresholds], (history, thresholds) =>
 			wrapInSvg(
@@ -343,9 +320,7 @@ class ServerFarm {
 		);
 	}
 
-	#buildSummaryCards(servers) {
-		const thresholds = this.thresholds.get();
-		const history = this.fleetHistory.get();
+	#buildSummaryCards(servers, thresholds, history) {
 		const serverCount = servers.length;
 
 		const healthyCount = servers.filter((server) => server.severity === "ok").length;
@@ -422,7 +397,6 @@ class ServerFarm {
 		const nextServers = this.servers.get().map((server) => server.next());
 		this.tickCount.set(this.tickCount.get() + 1);
 		this.fleetHistory.set([...this.fleetHistory.get(), this.#averageCpu(nextServers)].slice(-FLEET_HISTORY_LENGTH));
-		// Last on purpose: summaryCards reads fleetHistory, so it must already hold this tick's point
 		this.servers.set(nextServers);
 	}
 
