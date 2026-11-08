@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Wire.js cheat sheet</title>
+
+		<script src="../../wire.js"></script>
+		<script src="app.js"></script>
+		<link rel="stylesheet" href="index.css" />
+	</head>
+
+	<body>
+		<header>
+			<h1>Wire.js <span>cheat sheet</span></h1>
+			<p>Left: the live result. Right: the markup behind it, read straight from this page.</p>
+		</header>
+
+		<main>
+			<section class="card">
+				<h3>State, Computed, events <small>Wire.State · Wire.Computed · listen · flush · on:</small></h3>
+				<div class="body">
+					<div class="live" id="live-core">
+						<div>
+							<button on:click="@{ count.update((n) => n - 1) }">−</button>
+							<b><wire to="@count"></wire></b>
+							<button on:click="@{ count.update((n) => n + 1) }">+</button>
+							double <wire to="@double"></wire> · quadruple <wire to="@quadruple"></wire>
+						</div>
+						<div>
+							<input placeholder="name, Enter" on:keydown="@{ if (event.key === 'Enter') { added.update((list) => [...list, event.target.value]); event.target.value = '' } }" />
+							<wire for="@added" each="name"><button class="tag" on:click="@{ added.update((list) => list.filter((other) => other !== name)) }">{{ name }} ×</button></wire>
+						</div>
+					</div>
+					<div class="code">
+						<pre data-source-of="live-core"></pre>
+						<script type="text/plain">
+							const count = new Wire.State("count", 0);
+							const double = new Wire.Computed("double", [count], (v) => v * 2);
+
+							const stop = double.listen((v) => console.log(v)); // batched, only if changed
+							stop();
+							Wire.flush(); // apply pending updates now
+						</script>
+					</div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Batching <small>many sets, one render · Wire.flush()</small></h3>
+				<div class="body">
+					<div class="live" id="live-batch">
+						<div>
+							<button on:click="@{ for (let i = 0; i < 5; i++) hits.update((n) => n + 1) }">+1 five times</button>
+							<button on:click="@{ flushDemo() }">set, flush</button>
+						</div>
+						<div>hits <span id="hits-value"><wire to="@hits"></wire></span> · squared <wire to="@hitsSquared"></wire> · Computed ran <wire with="@hits @hitsSquared">{{ computeCalls }}</wire>×</div>
+						<div class="out"><wire to="@flushReport"></wire></div>
+					</div>
+					<div class="code"><pre data-source-of="live-batch"></pre></div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Attributes and bindings <small>:attr · bind:value · bind:checked</small></h3>
+				<div class="body">
+					<div class="live" id="live-bind">
+						<div>
+							<input bind:value="@fullName" placeholder="text" />
+							<input type="number" bind:value="@age" style="width: 5em" />
+							<input type="checkbox" bind:checked="@subscribed" />
+							<select bind:value="@color"><option>red</option><option>blue</option></select>
+							<input type="range" bind:value="@volume" />
+						</div>
+						<div><wire with="@fullName @age @subscribed @color @volume">{{ fullName.get() }} · {{ typeof age.get() }} · {{ subscribed.get() }} · {{ color.get() }} · {{ volume.get() }}</wire></div>
+						<div><button :disabled="@{ !subscribed.get() }" :title="@{ 'volume ' + volume.get() }" with="@subscribed @volume">Save</button> attributes only, same element</div>
+					</div>
+					<div class="code"><pre data-source-of="live-bind"></pre></div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Equality <small>identical primitives skipped · objects compared as JSON</small></h3>
+				<div class="body">
+					<div class="live" id="live-equality">
+						<div>
+							<button on:click="@{ point.set({ ...point.get() }) }">equal copy</button>
+							<button on:click="@{ point.update((p) => ({ ...p, x: p.x + 1 })) }">changed copy</button>
+							<button on:click="@{ point.update((p) => { p.x += 1; return p }) }">mutate in place</button>
+						</div>
+						<div>
+							<button on:click="@{ number.set(5) }">same number</button>
+							<button on:click="@{ number.update((n) => n + 1) }">new number</button>
+						</div>
+						<div>point <wire with="@point">{{ JSON.stringify(point.get()) }}</wire> · listener ran <wire to="@pointRuns"></wire>×</div>
+						<div>number <wire to="@number"></wire> · listener ran <wire to="@numberRuns"></wire>×</div>
+					</div>
+					<div class="code">
+						<pre data-source-of="live-equality"></pre>
+						<script type="text/plain">
+							number.update((n) => { n + 1 }); // throws: update() must return a value
+						</script>
+					</div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Expressions and escaping <small>{{ }} · {{{ }}} · with · stale · once</small></h3>
+				<div class="body">
+					<div class="live" id="live-expressions">
+						<input bind:value="@userText" placeholder="type markup or {{ 1 + 1 }}" />
+						<div>to: <wire to="@userText"></wire></div>
+						<div>{{ }}: <wire with="@userText">{{ userText.get() }}</wire></div>
+						<div>{{{ }}}: <wire>{{{ trustedMarkup }}}</wire></div>
+						<div>
+							a <button on:click="@{ a.update((n) => n + 1) }">+</button> <wire to="@a"></wire>
+							b <button on:click="@{ b.update((n) => n + 1) }">+</button> <wire to="@b"></wire>
+						</div>
+						<div>with a, b: <wire with="@a @b">{{ a.get() * b.get() }}</wire></div>
+						<div>with a only, b goes stale: <wire with="@a">{{ a.get() }} + {{ b.get() }}</wire></div>
+						<div>no with, renders once: <wire>{{ new Date().toLocaleTimeString() }}</wire></div>
+					</div>
+					<div class="code"><pre data-source-of="live-expressions"></pre></div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Conditions <small>if · else if · else</small></h3>
+				<div class="body">
+					<div class="live" id="live-conditions">
+						<div>
+							<input type="range" min="0" max="100" bind:value="@score" />
+							<wire to="@score"></wire>
+							<wire if="@{ score.get() >= 80 }" with="@score">great</wire>
+							<wire else if="@{ score.get() >= 50 }">ok</wire>
+							<wire else>low</wire>
+						</div>
+						<div>
+							<button on:click="@{ flag.update((f) => !f) }">toggle</button>
+							<wire if="@flag">on</wire>
+							<wire else>off</wire>
+						</div>
+					</div>
+					<div class="code"><pre data-source-of="live-conditions"></pre></div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Lists <small>for · each · nested · filter · repeat n · edit in place · component per row</small></h3>
+				<div class="body">
+					<div class="live" id="live-lists">
+						<div>
+							<button on:click="@{ addTodo() }">add</button>
+							<button on:click="@{ sortTodos() }">sort</button>
+							<input bind:value="@filter" placeholder="filter" />
+							<button on:click="@{ stars.update((n) => n % 5 + 1) }">stars</button>
+							<wire for="@{ Array(stars.get()).fill(0) }" with="@stars">★</wire>
+						</div>
+						<wire for="@{ todos.get().filter((todo) => todo.title.includes(filter.get())) }" with="@todos @filter" each="todo">
+							<div>
+								<wire if="@{ todo.done }">✔</wire><wire else>○</wire>
+								<input :value="@{ todo.title }" on:input="@{ todo.title = event.target.value; todos.set(todos.get()) }" />
+								<wire for="@{ todo.tags }" each="tag"><span class="tag">{{ tag }}</span></wire>
+								<component instance name="badge" arg:id="@{ todo.id }" arg:tag-count="@{ todo.tags.length }"></component>
+								<button on:click="@{ toggleTodo(todo.id) }">toggle</button>
+							</div>
+						</wire>
+						<component name="badge" arg:id arg:tag-count><small>#{{ id }} · {{ tagCount }} tags</small></component>
+					</div>
+					<div class="code"><pre data-source-of="live-lists"></pre></div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Components <small>arg: · kebab-case → camelCase · defined after use · recursion</small></h3>
+				<div class="body">
+					<div class="live" id="live-components">
+						<component instance name="card" arg:title="Literal"></component>
+						<component instance name="card" arg:title="@userName" arg:unit-label="@{ 'kg' }"></component>
+						<button on:click="@{ userName.update((n) => n === 'Ada' ? 'Grace' : 'Ada') }">rename</button>
+						<component name="card" arg:title arg:unit-label>
+							<div><b>{{ title }}</b> {{ unitLabel }}{{ unitLabel === null ? 'no unit (null)' : '' }}</div>
+						</component>
+
+						<component name="node" arg:item>
+							<li>
+								{{ item.name }}
+								<ul><wire for="@{ item.children }" each="child"><component instance name="node" arg:item="@{ child }"></component></wire></ul>
+							</li>
+						</component>
+						<ul><component instance name="node" arg:item="@tree"></component></ul>
+						<button on:click="@{ const b = tree.get().children[0]; b.children.push({ name: 'a' + (b.children.length + 1), children: [] }); tree.set(tree.get()) }">grow a branch</button>
+					</div>
+					<div class="code"><pre data-source-of="live-components"></pre></div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Re-render and mount <small>focus survives · Wire.mount()</small></h3>
+				<div class="body">
+					<div class="live" id="live-mount">
+						<wire with="@tick"><input placeholder="type here, re-renders every second {{ new Date(tick.get()).toLocaleTimeString() }}" size="44" /></wire>
+						<div>
+							<button on:click="@{ insertWire() }">insert a wire</button>
+							<span id="insert-target"></span>
+						</div>
+					</div>
+					<div class="code">
+						<pre data-source-of="live-mount"></pre>
+						<script type="text/plain">
+							target.insertAdjacentHTML("beforeend", '<wire to="@count"></wire>');
+							Wire.mount(target);
+						</script>
+					</div>
+				</div>
+			</section>
+
+			<section class="card">
+				<h3>Errors <small>Wire.errors · bad elements are isolated · cycles stop after 100 rounds</small></h3>
+				<div class="body">
+					<div class="live" id="live-errors">
+						<wire for="@validationResults" each="result"><div class="err"><code>{{{ result.html }}}</code><span>→ {{ result.message }}</span></div></wire>
+						<div>
+							<button on:click="@{ makeCycle() }">listener that sets its own signal</button>
+							<span class="out"><wire to="@cycleReport"></wire></span>
+						</div>
+					</div>
+					<div class="code">
+						<script type="text/plain">
+							const stop = loop.listen((v) => loop.set(v + 1));
+							loop.set(1);
+							Wire.flush(); // throws after 100 rounds
+						</script>
+					</div>
+				</div>
+			</section>
+		</main>
+
+		<script>
+			fillSourceBlocks();
+		</script>
+	</body>
+</html>

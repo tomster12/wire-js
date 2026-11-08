@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Tasks · plain JS</title>
+
+		<link rel="stylesheet" href="index.css" />
+	</head>
+
+	<body>
+		<div class="card">
+			<h1>Tasks</h1>
+			<input class="new" id="currentInput" placeholder="What needs doing? Press Enter" />
+			<div class="filters" id="filters"></div>
+			<div id="list"></div>
+			<div class="empty" id="empty">Nothing here.</div>
+			<div class="footer">
+				<span id="unfinishedTodos"></span>
+				<button id="clear">Clear done</button>
+			</div>
+		</div>
+
+		<script>
+			const FILTERS = ["all", "active", "done"];
+			const load = () => { try { return JSON.parse(localStorage.getItem("tasks")); } catch { return null; } };
+			const save = (list) => { try { localStorage.setItem("tasks", JSON.stringify(list)); } catch { /* storage unavailable */ } };
+
+			let todos = load() ?? [{ id: 1, text: "Try plain JS", done: false }];
+			let selectedFilter = "all";
+
+			const currentInput = document.getElementById("currentInput");
+			const filtersBox = document.getElementById("filters");
+			const listBox = document.getElementById("list");
+			const emptyMessage = document.getElementById("empty");
+			const unfinishedLabel = document.getElementById("unfinishedTodos");
+			const clearButton = document.getElementById("clear");
+
+			// Every change goes through setTodos or setFilter, which redraw the page
+			function setTodos(next) {
+				todos = next;
+				save(todos);
+				render();
+			}
+
+			function setFilter(next) {
+				selectedFilter = next;
+				render();
+			}
+
+			function addTodo() {
+				const text = currentInput.value.trim();
+				if (!text) return;
+				setTodos([...todos, { id: Date.now(), text, done: false }]);
+				currentInput.value = "";
+			}
+
+			function createRow(todo) {
+				const row = document.createElement("div");
+				row.className = "item" + (todo.done ? " done" : "");
+
+				const checkbox = document.createElement("input");
+				checkbox.type = "checkbox";
+				checkbox.checked = todo.done;
+				checkbox.addEventListener("change", () => setTodos(todos.map((t) => (t.id === todo.id ? { ...t, done: !t.done } : t))));
+
+				const label = document.createElement("span");
+				label.textContent = todo.text;
+
+				const remove = document.createElement("button");
+				remove.className = "remove";
+				remove.textContent = "×";
+				remove.addEventListener("click", () => setTodos(todos.filter((t) => t.id !== todo.id)));
+
+				row.append(checkbox, label, remove);
+				return row;
+			}
+
+			function render() {
+				const filteredTodos = todos.filter((todo) => selectedFilter === "all" || (selectedFilter === "done") === todo.done);
+				const unfinishedTodos = todos.filter((todo) => !todo.done).length;
+
+				filtersBox.replaceChildren(
+					...FILTERS.map((name) => {
+						const button = document.createElement("button");
+						button.className = name === selectedFilter ? "active" : "";
+						button.textContent = name;
+						button.addEventListener("click", () => setFilter(name));
+						return button;
+					}),
+				);
+
+				listBox.replaceChildren(...filteredTodos.map(createRow));
+				emptyMessage.hidden = filteredTodos.length > 0;
+				unfinishedLabel.textContent = `${unfinishedTodos} ${unfinishedTodos === 1 ? "task" : "tasks"} left`;
+				clearButton.disabled = unfinishedTodos === todos.length;
+			}
+
+			currentInput.addEventListener("keydown", (event) => {
+				if (event.key === "Enter") addTodo();
+			});
+			clearButton.addEventListener("click", () => setTodos(todos.filter((t) => !t.done)));
+
+			render();
+		</script>
+	</body>
+</html>

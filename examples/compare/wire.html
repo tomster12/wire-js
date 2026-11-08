@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Tasks · with Wire.js</title>
+		<script src="../../wire.js"></script>
+
+		<link rel="stylesheet" href="index.css" />
+
+		<script>
+			const load = () => { try { return JSON.parse(localStorage.getItem("tasks")); } catch { return null; } };
+			const save = (list) => { try { localStorage.setItem("tasks", JSON.stringify(list)); } catch { /* storage unavailable */ } };
+
+			const todos = new Wire.State("todos", load() ?? [{ id: 1, text: "Try Wire.js", done: false }]);
+			const selectedFilter = new Wire.State("selectedFilter", "all");
+			const currentInput = new Wire.State("currentInput", "");
+
+			const filteredTodos = new Wire.Computed("filteredTodos", [todos, selectedFilter], (todos, selectedFilter) => todos.filter((todo) => selectedFilter === "all" || (selectedFilter === "done") === todo.done));
+			const unfinishedTodos = new Wire.Computed("unfinishedTodos", [todos], (todos) => todos.filter((todo) => !todo.done).length);
+
+			function addTodo() {
+				const text = currentInput.get().trim();
+				if (!text) return;
+				todos.update((list) => [...list, { id: Date.now(), text, done: false }]);
+				currentInput.set("");
+			}
+
+			todos.listen(save);
+		</script>
+	</head>
+
+	<body>
+		<div class="card">
+			<h1>Tasks</h1>
+			<input class="new" placeholder="What needs doing? Press Enter" bind:value="@currentInput" on:keydown="@{ if (event.key === 'Enter') addTodo() }" />
+
+			<wire for="@{ ['all', 'active', 'done'] }" with="@selectedFilter" each="name" class="filters">
+				<button class="{{ name === selectedFilter.get() ? 'active' : '' }}" on:click="@{ selectedFilter.set(name) }">
+					{{ name }}
+				</button>
+			</wire>
+
+			<wire for="@filteredTodos" each="todo">
+				<div class="item {{ todo.done ? 'done' : '' }}">
+					<input type="checkbox" :checked="@{ todo.done }" on:change="@{ todos.update((list) => list.map((t) => (t.id === todo.id ? { ...t, done: !t.done } : t))) }" />
+					<span>{{ todo.text }}</span>
+					<button class="remove" on:click="@{ todos.update((list) => list.filter((t) => t.id !== todo.id)) }">×</button>
+				</div>
+			</wire>
+			
+			<wire if="@{ filteredTodos.get().length === 0 }" with="@filteredTodos" class="empty">
+				Nothing here.
+			</wire>
+
+			<div class="footer">
+				<wire with="@unfinishedTodos">
+					{{ unfinishedTodos.get() }} {{ unfinishedTodos.get() === 1 ? "task" : "tasks" }} left
+				</wire>
+				<button :disabled="@{ unfinishedTodos.get() === todos.get().length }" with="@unfinishedTodos @todos" on:click="@{ todos.update((list) => list.filter((t) => !t.done)) }">
+					Clear done
+				</button>
+			</div>
+		</div>
+	</body>
+</html>

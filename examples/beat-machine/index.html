@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Wire Beats · Wire.js</title>
+
+		<script src="../../wire.js"></script>
+		<script src="app.js"></script>
+		<link rel="stylesheet" href="index.css" />
+	</head>
+
+	<body>
+		<!-- Live CSS: the playhead column and the energy glow are plain CSS rules rebuilt from signals, so the grid itself never re-renders while playing -->
+		<wire with="@currentStep @energy">{{{ liveCss(currentStep.get(), energy.get()) }}}</wire>
+
+		<component name="volume-meter" arg:track-id arg:level>
+			<wire for="@{ [1, 2, 3, 4, 5] }" each="n" class="meter">
+				<button class="seg {{ n <= level ? 'lit' : '' }}" title="Volume {{ n }}" on:mousedown="@{ setLevel(trackId, n) }"></button>
+			</wire>
+		</component>
+
+		<div class="shell">
+			<header class="top">
+				<div class="brand">
+					<span class="logo">WIRE<b>/</b>BEATS</span>
+					<span class="tagline">a drum machine in one HTML file and a signal graph</span>
+				</div>
+				<div class="stats">
+					<wire for="@statChips" each="chip">
+						<span class="stat"><b>{{ chip.value }}</b> {{ chip.label }}</span>
+					</wire>
+				</div>
+			</header>
+
+			<section class="glass visualizer">
+				<wire with="@levels">{{{ spectrumSvg(levels.get()) }}}</wire>
+			</section>
+
+			<section class="glass transport">
+				<button class="play" :class="@{ playing.get() ? 'is-playing' : '' }" with="@playing" on:click="@{ togglePlayback() }" title="Space">
+					<wire with="@playing">{{ playing.get() ? '❚❚' : '▶' }}</wire>
+				</button>
+
+				<label class="knob big">
+					<span class="knob-label">Tempo</span>
+					<span class="readout"><wire to="@bpm"></wire><small>bpm</small></span>
+					<input type="range" min="70" max="180" bind:value="@bpm" />
+				</label>
+
+				<label class="knob">
+					<span class="knob-label">Swing <b><wire to="@swing"></wire>%</b></span>
+					<input type="range" min="0" max="60" bind:value="@swing" />
+				</label>
+
+				<label class="knob">
+					<span class="knob-label">Volume <b><wire to="@masterVolume"></wire>%</b></span>
+					<input type="range" min="0" max="100" bind:value="@masterVolume" />
+				</label>
+
+				<label class="knob">
+					<span class="knob-label">Key</span>
+					<select bind:value="@root">
+						<option value="33">A</option>
+						<option value="36">C</option>
+						<option value="38">D</option>
+						<option value="40">E</option>
+						<option value="41">F</option>
+						<option value="43">G</option>
+					</select>
+				</label>
+
+				<label class="knob">
+					<span class="knob-label">Scale</span>
+					<select bind:value="@scale">
+						<option value="minor">Minor pentatonic</option>
+						<option value="major">Major pentatonic</option>
+						<option value="dorian">Dorian</option>
+						<option value="phrygian">Phrygian</option>
+					</select>
+				</label>
+			</section>
+
+			<section class="glass grid">
+				<div class="track step-header">
+					<div></div>
+					<wire for="@stepNumbers" each="n" class="cells">
+						<span class="step-num {{ n % 4 === 0 ? 'beat' : '' }}" data-step="{{ n }}">{{ n % 4 === 0 ? n / 4 + 1 : '·' }}</span>
+					</wire>
+				</div>
+
+				<!-- Rows only re-render when the pattern changes, so clicking, dragging to paint and muting stay responsive while the playhead moves -->
+				<wire for="@rows" each="track" class="tracks">
+					<div class="track {{ track.audible ? '' : 'silent' }}" style="--c: {{ track.color }}">
+						<div class="track-head">
+							<span class="dot"></span>
+							<span class="track-name">{{ track.name }}</span>
+							<button class="flag {{ track.muted ? 'on' : '' }}" title="Mute" on:mousedown="@{ toggleTrackFlag(track.id, 'muted') }">M</button>
+							<button class="flag solo {{ track.solo ? 'on' : '' }}" title="Solo" on:mousedown="@{ toggleTrackFlag(track.id, 'solo') }">S</button>
+							<component instance name="volume-meter" arg:track-id="@{ track.id }" arg:level="@{ track.level }"></component>
+						</div>
+						<wire for="@{ track.cells }" each="cell" class="cells">
+							<button
+								class="cell g{{ cell.group }} {{ cell.on ? 'on' : '' }}"
+								data-step="{{ cell.index }}"
+								on:mousedown="@{ paintStart(track.id, cell.index) }"
+								on:mouseenter="@{ paintOver(track.id, cell.index, event) }"
+							></button>
+						</wire>
+					</div>
+				</wire>
+			</section>
+
+			<section class="glass footer">
+				<div class="presets">
+					<span class="footer-label">Patterns</span>
+					<wire for="@presetNames" each="name">
+						<button class="chip" on:click="@{ applyPreset(name) }">{{ name }}</button>
+					</wire>
+					<button class="chip accent" on:click="@{ randomize() }">🎲 Randomize</button>
+					<button class="chip" on:click="@{ clearPattern() }">Clear</button>
+				</div>
+				<div class="share">
+					<span class="footer-label">Your beat lives in the URL</span>
+					<code><wire to="@shareCode"></wire></code>
+					<button class="chip" on:click="@{ copyLink() }"><wire with="@copyLabel">{{ copyLabel.get() }}</wire></button>
+				</div>
+			</section>
+
+			<p class="hint">Click or drag across the grid to paint steps · press <kbd>Space</kbd> to play · M / S mute and solo · click the bars to set a track's level</p>
+		</div>
+	</body>
+</html>

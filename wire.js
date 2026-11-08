@@ -10,14 +10,15 @@
 	const compiledFunctionCache = new Map();
 	const compiledTemplateCache = new Map();
 	const mountedElements = new WeakSet();
-	const pendingUpdaters = new Set();
+	const pendingTasks = new Set();
 	const errors = [];
+
 	let updateScheduled = false;
 	let unsnapshotableCount = 0;
 
-	class WireError extends Error { }
+	//#region Utility
 
-	// Utility
+	class WireError extends Error { }
 
 	function isVariableName(text) {
 		return /^[A-Za-z_$][\w$]*$/.test(text);
@@ -35,12 +36,16 @@
 	function snapshotOf(value) {
 		try {
 			const json = JSON.stringify(value, (key, nestedValue) => {
-				if (typeof nestedValue === "function" || nestedValue instanceof Map || nestedValue instanceof Set) throw new TypeError("not representable as JSON");
+				if (typeof nestedValue === "function" ||
+					nestedValue instanceof Map ||
+					nestedValue instanceof Set) {
+					throw new TypeError("not representable as JSON");
+				}
 				return nestedValue;
 			});
 			return json ?? "";
 		} catch {
-			// Data JSON cannot represent (functions, Maps, Sets, circular references) can never be proven unchanged
+			// Data that JSON cannot represent (functions, Maps, Sets, circular references) can never be proven unchanged
 			return `unsnapshotable-${++unsnapshotableCount}`;
 		}
 	}
@@ -55,28 +60,30 @@
 		return text.replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => HTML_UNESCAPES[entity]);
 	}
 
-	// Updates
+	//#endregion
 
-	function scheduleUpdate(updater) {
-		pendingUpdaters.add(updater);
+	//#region Batched Tasks
+
+	function scheduleTasks(task) {
+		pendingTasks.add(task);
 
 		if (!updateScheduled) {
 			updateScheduled = true;
-			queueMicrotask(runScheduledUpdates);
+			queueMicrotask(runScheduledTasks);
 		}
 	}
 
-	function runScheduledUpdates() {
+	function runScheduledTasks() {
 		updateScheduled = false;
 		let roundCount = 0;
 
-		while (pendingUpdaters.size > 0) {
+		while (pendingTasks.size > 0) {
 			if (++roundCount > MAX_UPDATE_ROUNDS) {
-				pendingUpdaters.clear();
+				pendingTasks.clear();
 				throw new WireError(`Updates did not settle after ${MAX_UPDATE_ROUNDS} rounds, a signal is probably being set from inside its own dependent`);
 			}
-			const updaters = [...pendingUpdaters];
-			pendingUpdaters.clear();
+			const updaters = [...pendingTasks];
+			pendingTasks.clear();
 
 			for (const updater of updaters) {
 				try {
@@ -88,7 +95,9 @@
 		}
 	}
 
-	// Signals
+	//#endregion
+
+	//#region Signals
 
 	class Signal {
 		constructor(name) {
@@ -109,7 +118,7 @@
 			// Runs once per batch with the latest value, and only if its JSON snapshot changed
 			let lastSnapshot = snapshotOf(this.get());
 			const listener = {
-				onDependencyChanged: () => scheduleUpdate(listener),
+				onDependencyChanged: () => scheduleTasks(listener),
 				runUpdate: () => {
 					if (!this.dependents.has(listener)) return;
 
@@ -179,7 +188,9 @@
 		}
 	}
 
-	// Attributes
+	//#endregion
+
+	//#region Attributes
 
 	function isPlainHtmlAttribute(attributeName) {
 		return PLAIN_HTML_ATTRIBUTES.includes(attributeName) || PLAIN_HTML_ATTRIBUTE_PREFIXES.some((prefix) => attributeName.startsWith(prefix));
@@ -237,7 +248,9 @@
 		}
 	}
 
-	// Expressions and templates
+	//#endregion
+
+	//#region Expressions and Templates
 
 	function evaluateWithVariables(code, scope = {}, isStatements = false) {
 		// Every signal is available by its name, and a loop variable or component argument of the same name wins
@@ -329,7 +342,9 @@
 		return parts;
 	}
 
-	// Elements
+	//#endregion
+
+	//#region Elements
 
 	class ReactiveElement {
 		constructor(element, scope) {
@@ -351,7 +366,7 @@
 		}
 
 		onDependencyChanged() {
-			scheduleUpdate(this);
+			scheduleTasks(this);
 		}
 
 		runUpdate() {
@@ -614,6 +629,8 @@
 			this.element.addEventListener(eventName, () => {
 				if (name === "checked") signal.set(this.element.checked);
 				else if (isNumeric) signal.set(this.element.value === "" ? null : Number(this.element.value));
+				// Option values are always strings, so a select keeps the type its signal currently has
+				else if (this.element.localName === "select" && typeof signal.get() === "number" && this.element.value !== "" && !Number.isNaN(Number(this.element.value))) signal.set(Number(this.element.value));
 				else signal.set(this.element.value);
 			});
 		}
@@ -662,21 +679,26 @@
 		return componentTemplatesByName.get(name);
 	}
 
-	// Mounting
+	//#endregion
 
-	function isComponentDefinition(element) {
-		return element.localName === "component" && !element.hasAttribute("instance");
-	}
+	//#region Mounting
 
-	function hasBindingAttributes(element) {
-		if (element.localName in elementClassesByTagName) return false;
-		return element.getAttributeNames().some((name) => name.startsWith(":") || name.startsWith("on:") || name.startsWith("bind:"));
+	function mountPage() {
+		const errorCountBefore = errors.length;
+
+		mountElements(document);
+
+		const pageErrorCount = errors.length - errorCountBefore;
+		if (pageErrorCount > 0) console.error(`Wire: ${pageErrorCount} element(s) failed to mount, see the errors above and Wire.errors`);
 	}
 
 	function mountElements(parent, scope = {}) {
 		// A wire or component owns its content, so only the outermost ones mount here, the rest mount when their owner renders
 		const contentElements = [...parent.querySelectorAll(contentElementSelector)];
-		const outermostContentElements = contentElements.filter((element) => !contentElements.some((other) => other !== element && other.contains(element)));
+
+		const outermostContentElements = contentElements.filter((element) =>
+			!contentElements.some((other) => other !== element && other.contains(element)));
+
 		const boundElements = [...parent.querySelectorAll("*")].filter(
 			(element) => hasBindingAttributes(element) && !contentElements.some((contentElement) => contentElement.contains(element)),
 		);
@@ -684,6 +706,7 @@
 		// Definitions register first so an instance placed above its definition still finds it
 		const definitions = outermostContentElements.filter(isComponentDefinition);
 		const others = outermostContentElements.filter((element) => !isComponentDefinition(element));
+
 		for (const element of [...definitions, ...others, ...boundElements]) {
 			// One element failing must not stop the others
 			try {
@@ -699,6 +722,15 @@
 		if (mountedElements.has(element)) return;
 		mountedElements.add(element);
 		element.__wireInstance = new (elementClassesByTagName[element.localName] ?? BoundElement)(element, scope);
+	}
+
+	function isComponentDefinition(element) {
+		return element.localName === "component" && !element.hasAttribute("instance");
+	}
+
+	function hasBindingAttributes(element) {
+		if (element.localName in elementClassesByTagName) return false;
+		return element.getAttributeNames().some((name) => name.startsWith(":") || name.startsWith("on:") || name.startsWith("bind:"));
 	}
 
 	function disposeNestedElements(parent) {
@@ -769,22 +801,21 @@
 		};
 	}
 
-	function mountPage() {
-		const errorCountBefore = errors.length;
-		mountElements(document);
-		const pageErrorCount = errors.length - errorCountBefore;
-		if (pageErrorCount > 0) console.error(`Wire: ${pageErrorCount} element(s) failed to mount, see the errors above and Wire.errors`);
-	}
+	//#endregion
 
-	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountPage);
-	else queueMicrotask(mountPage);
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", mountPage);
+	}
+	else {
+		queueMicrotask(mountPage);
+	}
 
 	window.Wire = Object.freeze({
 		State,
 		Computed,
 		WireError,
 		errors,
-		flush: runScheduledUpdates,
+		flush: runScheduledTasks,
 		mount: (parent) => mountElements(parent),
 	});
 })();

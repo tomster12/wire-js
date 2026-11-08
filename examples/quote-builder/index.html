@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Quote Builder · Wire.js</title>
+
+		<script src="../../wire.js"></script>
+		<script src="app.js"></script>
+		<link rel="stylesheet" href="index.css" />
+	</head>
+
+	<body>
+		<!-- Components: defined once, used anywhere, even above their definition -->
+		<component name="money" arg:amount arg:currency>
+			<span class="money {{ amount < 0 ? 'negative' : '' }}">{{ formatMoney(amount, currency) }}</span>
+		</component>
+
+		<component name="line-item" arg:item arg:index arg:currency>
+			<div class="row {{ item.problems.length ? 'invalid' : '' }}">
+				<span class="row-index">{{ index + 1 }}</span>
+				<input class="name" placeholder="Description" :value="@{ item.name }" on:input="@{ setField(item.id, 'name', event.target.value) }" />
+				<input type="number" min="0" step="1" :value="@{ item.qty }" on:input="@{ setField(item.id, 'qty', event.target.value) }" />
+				<input type="number" min="0" step="0.01" :value="@{ item.price }" on:input="@{ setField(item.id, 'price', event.target.value) }" />
+				<label class="taxable">
+					<input type="checkbox" :checked="@{ item.taxable }" on:change="@{ setField(item.id, 'taxable', event.target.checked) }" />
+					tax
+				</label>
+				<component instance name="money" arg:amount="@{ item.lineTotal }" arg:currency="@currency"></component>
+				<span class="row-actions">
+					<button class="icon" title="Duplicate" on:click="@{ duplicateItem(item.id) }">⧉</button>
+					<button class="icon danger" title="Remove" on:click="@{ removeItem(item.id) }">×</button>
+				</span>
+			</div>
+		</component>
+
+		<header class="app-bar">
+			<h1>Quote Builder</h1>
+			<span class="saved">
+				<wire with="@savedAt">{{ savedAt.get() ? 'Saved ' + savedAt.get() : 'Not saved yet' }}</wire>
+			</span>
+		</header>
+
+		<div class="app">
+			<main class="main">
+				<section class="panel">
+					<h2 class="panel-title">Client</h2>
+					<div class="panel-body client">
+						<input placeholder="Client name" bind:value="@clientName" />
+						<select bind:value="@currency">
+							<option value="USD">USD $</option>
+							<option value="EUR">EUR €</option>
+							<option value="GBP">GBP £</option>
+							<option value="JPY">JPY ¥</option>
+						</select>
+						<!-- A heading that follows the input, no event handler needed -->
+						<h3 class="client-heading"><wire with="@clientName">{{ clientName.get() || 'Untitled quote' }}</wire> · <wire to="@itemCountLabel"></wire></h3>
+					</div>
+				</section>
+
+				<section class="panel">
+					<div class="panel-title toolbar">
+						<h2>Line items</h2>
+						<span>
+							<button on:click="@{ loadSample() }">Load sample</button>
+							<button class="primary" on:click="@{ addItem() }">+ Add item</button>
+						</span>
+					</div>
+
+					<wire if="@{ pricedItems.get().length === 0 }" with="@pricedItems" class="empty">
+						Nothing here yet. Add an item or load the sample quote.
+					</wire>
+					<wire else>
+						<div class="table-header">
+							<span>#</span><span>Description</span><span>Qty</span><span>Unit price</span><span>Tax</span><span class="numeric">Total</span><span></span>
+						</div>
+					</wire>
+
+					<!-- Typing in a row re-renders the row, and focus, caret and text survive it -->
+					<wire for="@pricedItems" each="item">
+						<component instance name="line-item" arg:item="@{ item }" arg:index="@{ pricedItems.get().indexOf(item) }" arg:currency="@currency"></component>
+					</wire>
+
+					<wire if="@hasProblems" class="problems">
+						<strong>Fix before sending:</strong>
+						<ul>
+							<wire for="@problems" each="problem"><li>{{ problem }}</li></wire>
+						</ul>
+					</wire>
+				</section>
+				
+				<section class="panel">
+					<h2 class="panel-title">Adjustments</h2>
+					<div class="panel-body adjustments">
+						<label class="control">
+							<span>Tax rate <b><wire to="@taxRate"></wire>%</b></span>
+							<input type="range" min="0" max="25" step="0.5" bind:value="@taxRate" />
+						</label>
+
+						<label class="check">
+							<input type="checkbox" bind:checked="@expressShipping" />
+							Express shipping
+						</label>
+
+						<label class="control">
+							<span>Discount code</span>
+							<input placeholder="Try SAVE10, HALF or FREESHIP" bind:value="@discountCode" />
+						</label>
+
+						<!-- if / else if / else chain, each branch re-evaluates when its signal changes -->
+						<wire if="@{ discountState.get().status === 'none' }" with="@discountState" class="hint">No code applied.</wire>
+						<wire else if="@{ discountState.get().status === 'unknown' }" class="hint bad">{{{ discountMessageHtml(discountState.get()) }}}</wire>
+						<wire else if="@{ discountState.get().status === 'locked' }" class="hint warn">{{{ discountMessageHtml(discountState.get()) }}}</wire>
+						<wire else class="hint good">{{{ discountMessageHtml(discountState.get()) }}}</wire>
+					</div>
+				</section>
+
+			</main>
+
+			<aside class="side">
+				<section class="panel">
+					<h2 class="panel-title">Summary</h2>
+					<div class="panel-body">
+						<wire for="@summaryRows" each="row" class="summary">
+							<div class="summary-row {{ row.kind }}">
+								<span>{{ row.label }}</span>
+								<component instance name="money" arg:amount="@{ row.amount }" arg:currency="@currency"></component>
+							</div>
+						</wire>
+						<button class="primary wide" :disabled="@hasProblemsOrEmpty" on:click="@{ copyQuote() }">
+							<wire with="@copyLabel">{{ copyLabel.get() }}</wire>
+						</button>
+						<button class="secondary wide" on:click="@{ resetAll() }">Reset everything</button>
+					</div>
+				</section>
+
+				<section class="panel">
+					<h2 class="panel-title">Live JSON</h2>
+					<pre class="json"><wire to="@quoteJson"></wire></pre>
+				</section>
+			</aside>
+		</div>
+	</body>
+</html>

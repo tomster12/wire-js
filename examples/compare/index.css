@@ -1,0 +1,16 @@
+* { box-sizing: border-box; }
+body { margin: 0; padding: 40px 16px; background: #f1f3f8; font: 15px/1.4 system-ui, sans-serif; color: #1c2233; }
+wire { display: contents; }
+.card { max-width: 420px; margin: 0 auto; padding: 20px; background: #fff; border-radius: 14px; box-shadow: 0 8px 30px rgba(20, 30, 70, 0.1); }
+h1 { margin: 0 0 14px; font-size: 20px; }
+input.new { width: 100%; padding: 10px 12px; border: 1px solid #d5d9e5; border-radius: 8px; font: inherit; }
+.filters { display: flex; gap: 6px; margin: 14px 0 6px; }
+button { padding: 5px 12px; border: 1px solid #d5d9e5; border-radius: 999px; background: #fff; font: inherit; font-size: 13px; cursor: pointer; text-transform: capitalize; }
+button.active { background: #3b5bdb; border-color: #3b5bdb; color: #fff; }
+button:disabled { opacity: 0.4; cursor: default; }
+.item { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #eef0f6; }
+.item span { flex: 1; }
+.item.done span { color: #9aa1b5; text-decoration: line-through; }
+.item .remove { padding: 0 8px; border: 0; font-size: 18px; color: #b0b6c8; text-transform: none; }
+.empty { padding: 18px 0; text-align: center; color: #9aa1b5; }
+.footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; color: #6b7390; font-size: 13px; }

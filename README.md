@@ -12,7 +12,12 @@ Wire is a single file that makes a plain HTML page reactive, with no build step.
 <wire to="@count"></wire>
 ```
 
-`examples/example-1` is a one-page cheat sheet of every feature, and `examples/example-2` is a small app.
+The examples, each opened by loading its `index.html`:
+
+- `examples/cheatsheet` is a one-page cheat sheet of every feature.
+- `examples/app-servers` is a live fleet dashboard.
+- `examples/quote-builder` is a form-heavy app with editable rows, derived totals and validation.
+- `examples/beat-machine` is a drum machine with synthesised audio and a live spectrum.
 
 ## Signals
 
@@ -102,7 +107,9 @@ Any element can react to events and bind its attributes to signals, and unlike a
 
 - **`on:event="@{ code }"`** runs when the event fires. The code is one or more statements, with the loop variables, the signals and `event` in scope, so `on:click="@{ toggle(todo.id) }"` works inside a loop with no data pasted into a string.
 - **`:name="@signal"` or `:name="@{ expr }"`** sets an attribute whenever the signal changes. An expression is reactive only for the signals named in `with`, as with `if`.
-- **`bind:value` and `bind:checked`** are two-way: the field shows the signal, and typing sets it. They need a `State`, and `number` and `range` inputs give you numbers. For radios use `:checked` with `on:change`.
+- **`bind:value` and `bind:checked`** are two-way: the field shows the signal, and typing sets it. They need a `State`, and `number` and `range` inputs give you numbers. A `<select>` gives you a number too when its signal currently holds one, otherwise a string, since option values are always text. For radios use `:checked` with `on:change`.
+
+`bind:` needs a named signal, so it can't bind to a field of a loop item. Inside a list use `:value` with `on:input`, shown below.
 
 How a binding is applied:
 
@@ -133,7 +140,7 @@ A component is a reusable template. You define it once with its argument names, 
 ```
 
 - HTML lowercases attribute names, so write multi-word arguments in kebab-case. `arg:unit-label` becomes `unitLabel` in the template.
-- An argument is a `@signal`, an `@{ expr }` or a literal. Signals are reactive, expressions are evaluated when the instance renders, and literals are always strings, so use `@{ 42 }` for a number.
+- An argument is a `@signal`, an `@{ expr }` or a literal. Only a plain `@signal` argument is reactive. An `@{ expr }` is evaluated when the instance renders and never tracks the signals it reads, even if you wrote `with` on the wire around it (see Rendering), and literals are always strings, so use `@{ 42 }` for a number. To make a component follow a signal, pass the signal itself, as in `arg:currency="@currency"`.
 - The template sees its own arguments, signals and globals, but not the loop variables around the instance.
 - An argument you leave out is `null`, and one the component doesn't declare throws.
 - Definitions are mounted first, so an instance may appear above its definition. A component can render itself, which is how you draw a tree.
@@ -142,6 +149,14 @@ A component is a reusable template. You define it once with its argument names, 
 ## Rendering
 
 When a wire's output changes, it replaces its children. If nothing changed, the existing elements are left alone. Lists have no keys, so a change to a list rebuilds every row.
+
+"Nothing changed" means the hydrated HTML text and, in a loop, the JSON of each item. A signal named in `with` therefore only matters if reading it changes that text. A nested instance written as `arg:x="@{ sig.get() }"` produces the same text before and after `sig` changes, so the wire skips the update and the component keeps its old value. Pass `@sig` to the component instead, or print the value into the wire's own text.
+
+Because a re-render replaces the elements, anything that depends on a specific element being alive for a while breaks: a `range` input being dragged, a text selection, a CSS transition on the replaced element, or a click whose mouse press and release land on different elements. Keep such controls outside the wire that re-renders, or use a bound element. For frequent visual state, such as a playing step, avoid re-rendering the list at all and write a CSS rule from a signal instead:
+
+```html
+<wire with="@step">{{{ '<style>.cell[data-step="' + step.get() + '"] { filter: brightness(1.5) }</style>' }}}</wire>
+```
 
 If the focused field is inside the children being replaced, it gets its focus, its typed text and its caret back, matched by position. This is best effort and doesn't restore scroll position or a pointer drag.
 
@@ -184,6 +199,8 @@ After mounting, the page logs how many elements failed. Errors from later re-ren
 - Wires can't go inside `<table>` or `<select>`, because the parser moves or drops them, and it moves text between table tags out of the table as well. Build the whole table in one `{{{ }}}` expression from a function (escape the values yourself), or lay it out with `display: table` divs.
 - `<wire>` and `<component>` are inline elements, so add `wire, component { display: contents; }` to your CSS.
 - An expression only updates for the signals its element names, with `with` or `to`, `for` and `if`. Any other signal it reads goes stale. That includes `:name="@{ expr }"` bindings.
+- A component only watches the signals passed to it directly as `arg:x="@signal"`. `arg:x="@{ signal.get() }"` is read once per render and goes stale (see Rendering).
+- A loop has no index variable. Add an `index` field when you build the list, for example in a `Computed`, or use `indexOf`.
 - A `}}` ends an expression, so write `{{ ({ a: { b: 1 } }).a }}` with a space, and put a space after a `<` that follows a letter.
 - `{{ }}` isn't allowed in wire, component or binding attributes, so use `@{ }`.
 - Create signals before the page finishes parsing. An element that names an unknown signal fails to mount and is never retried. A component defined inside a re-rendering wire is registered twice and throws.
