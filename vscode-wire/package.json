@@ -1,8 +1,8 @@
 {
 	"name": "wire-js",
 	"displayName": "Wire.js",
-	"description": "HTML language support for Wire.js: <wire>/<component> attribute completion, {{ }} and @{ } expression highlighting, @signal references, and snippets.",
-	"version": "0.2.0",
+	"description": "HTML language support for Wire.js: <wire>/<component> attribute completion, on:, : and bind: attribute support, {{ }} and @{ } expression highlighting, @signal references, and snippets.",
+	"version": "0.3.0",
 	"publisher": "local",
 	"license": "MIT",
 	"engines": { "vscode": "^1.74.0" },

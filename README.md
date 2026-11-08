@@ -1,14 +1,14 @@
 # Wire.js
 
-Wire is a single file that makes a plain HTML page reactive, with no build step. You create signals in JavaScript and bind them to the page with `<wire>` and `<component>` elements.
+Wire is a single file that makes a plain HTML page reactive, with no build step. You create signals in JavaScript and bind them to the page with `<wire>` and `<component>` elements, plus `on:`, `:` and `bind:` attributes on any other element.
 
 ```html
 <script src="wire.js"></script>
 <script>
-	const count = new Wire.State("count", 0);
+	new Wire.State("count", 0);
 </script>
 
-<button onclick="count.update((n) => n + 1)">Add</button>
+<button on:click="@{ count.update((n) => n + 1) }">Add</button>
 <wire to="@count"></wire>
 ```
 
@@ -39,7 +39,7 @@ If updates keep triggering each other, Wire gives up after 100 rounds with a `Wi
 
 ## Syntax
 
-Attributes on `<wire>` and `<component>` take one of four forms: `@name` for a signal, `@{ expr }` for a JavaScript expression, plain text for a literal, or no value for a flag.
+Wire's attributes take one of four forms: `@name` for a signal, `@{ expr }` for a JavaScript expression, plain text for a literal, or no value for a flag.
 
 Inside the content of a wire or component, `{{ expr }}` inserts the result as escaped text, and `{{{ expr }}}` inserts it as markup, which you should only do with HTML your own code generated.
 
@@ -78,7 +78,7 @@ A wire's own content is its template, and these attributes decide when and how i
 <wire>Rendered once at {{ new Date().toLocaleTimeString() }}</wire>
 ```
 
-Inside a loop, the loop variable is in scope for everything nested, including the `@{ }` attributes of nested elements. The outer template never looks inside a nested wire or component, which evaluates its own content with its own scope, so give those elements `@{ }` rather than `{{ }}`.
+Inside a loop, the loop variable is in scope for everything nested, including the attributes of nested elements. The outer template never looks inside a nested wire or component, which evaluates its own content with its own scope, so give those elements `@{ }` rather than `{{ }}`.
 
 ```html
 <wire for="@list" each="bob">
@@ -86,6 +86,39 @@ Inside a loop, the loop variable is in scope for everything nested, including th
 	<component instance name="badge" arg:label="@{ bob.name }"></component>
 </wire>
 ```
+
+## Events and attribute bindings
+
+Any element can react to events and bind its attributes to signals, and unlike a wire it is never rebuilt, so focus and typed text stay put.
+
+```html
+<button on:click="@{ count.update((n) => n + 1) }">Add</button>
+
+<button :disabled="@busy" :class="@{ busy.get() ? 'busy' : '' }" with="@busy">Save</button>
+
+<input bind:value="@name" />
+<input type="checkbox" bind:checked="@done" />
+```
+
+- **`on:event="@{ code }"`** runs when the event fires. The code is one or more statements, with the loop variables, the signals and `event` in scope, so `on:click="@{ toggle(todo.id) }"` works inside a loop with no data pasted into a string.
+- **`:name="@signal"` or `:name="@{ expr }"`** sets an attribute whenever the signal changes. An expression is reactive only for the signals named in `with`, as with `if`.
+- **`bind:value` and `bind:checked`** are two-way: the field shows the signal, and typing sets it. They need a `State`, and `number` and `range` inputs give you numbers. For radios use `:checked` with `on:change`.
+
+How a binding is applied:
+
+- `true` sets a boolean attribute such as `disabled`, and `false`, `null` or `undefined` removes the attribute. To write the text `false`, as `aria-expanded` needs, use `@{ String(open.get()) }`.
+- `:class` only adds and removes its own class names, so static classes stay. `:style` replaces the whole `style` attribute.
+- `value`, `checked` and `selected` are written as properties, and a field that already shows the value is left alone, so the caret doesn't jump.
+
+Editing an item inside a list is the same pair written by hand, since the item isn't a signal:
+
+```html
+<wire for="@todos" each="todo">
+	<input :value="@{ todo.title }" on:input="@{ todo.title = event.target.value; todos.set(todos.get()) }" />
+</wire>
+```
+
+A wire or component can't carry these attributes. A bound element can contain wires, and they mount on their own.
 
 ## `<component>`
 
@@ -112,7 +145,7 @@ When a wire's output changes, it replaces its children. If nothing changed, the 
 
 If the focused field is inside the children being replaced, it gets its focus, its typed text and its caret back, matched by position. This is best effort and doesn't restore scroll position or a pointer drag.
 
-Children of a wire that re-rendered are unsubscribed straight away. A wire you remove from the page yourself stops listening the next time one of its signals changes.
+Children of a wire that re-rendered are unsubscribed straight away. A wire or bound element you remove from the page yourself stops listening the next time one of its signals changes.
 
 ## Updating the DOM straight away
 
@@ -128,7 +161,7 @@ Without the flush, `#row-42` wouldn't exist yet. Reading a signal never needs it
 
 ## Adding wires from JavaScript
 
-Wires in the page are mounted for you once it has parsed. If your own code inserts new ones, mount them yourself:
+Elements in the page are mounted for you once it has parsed. If your own code inserts new ones, mount them yourself:
 
 ```js
 container.innerHTML = '<wire to="@count"></wire>';
@@ -137,7 +170,7 @@ Wire.mount(container);
 
 ## Errors
 
-Wire's own errors are a `Wire.WireError` with a message saying what is wrong, and an expression that throws surfaces as its own error. One element failing never stops the others. The error is logged, added to the `Wire.errors` array, and the element gets a `data-wire-error` attribute holding the message, so you can see the broken one on the page.
+Wire's own errors are a `Wire.WireError` with a message saying what is wrong, and an expression that throws surfaces as its own error. One element failing never stops the others. The error is logged, added to the `Wire.errors` array, and the element gets a `data-wire-error` attribute holding the message, so you can see the broken one on the page. An event handler that throws is logged and collected the same way.
 
 ```css
 [data-wire-error] { outline: 2px solid red; }
@@ -150,10 +183,11 @@ After mounting, the page logs how many elements failed. Errors from later re-ren
 - Always write `<wire></wire>`, because the browser ignores the `/` in `<wire />`.
 - Wires can't go inside `<table>` or `<select>`, because the parser moves or drops them, and it moves text between table tags out of the table as well. Build the whole table in one `{{{ }}}` expression from a function (escape the values yourself), or lay it out with `display: table` divs.
 - `<wire>` and `<component>` are inline elements, so add `wire, component { display: contents; }` to your CSS.
-- An expression only updates for the signals its element names. Any other signal it reads goes stale.
+- An expression only updates for the signals its element names, with `with` or `to`, `for` and `if`. Any other signal it reads goes stale. That includes `:name="@{ expr }"` bindings.
 - A `}}` ends an expression, so write `{{ ({ a: { b: 1 } }).a }}` with a space, and put a space after a `<` that follows a letter.
-- `{{ }}` isn't allowed in wire or component attributes, so use `@{ }`.
-- Create signals before the page finishes parsing. A wire that names an unknown signal fails to mount and is never retried. A component defined inside a re-rendering wire is registered twice and throws.
+- `{{ }}` isn't allowed in wire, component or binding attributes, so use `@{ }`.
+- Create signals before the page finishes parsing. An element that names an unknown signal fails to mount and is never retried. A component defined inside a re-rendering wire is registered twice and throws.
 - Expressions are compiled with `new Function`, so a Content Security Policy must allow `unsafe-eval`.
-- Don't put `{{ }}` data inside an inline handler like `onclick`, pass an id instead. Escaping also doesn't make a `javascript:` URL safe.
-- A click that starts on a row which is replaced before the mouse is released is lost, so use `onmousedown` for rows that change often.
+- Use `on:click` instead of an inline `onclick` whenever the handler needs loop data. Pasting `{{ }}` data into an inline handler can break out of its string, and escaping doesn't make a `javascript:` URL safe.
+- Attribute names are lowercase in HTML, so camelCase attributes such as the SVG `viewBox` can't be bound.
+- A click that starts on a row which is replaced before the mouse is released is lost, so use `on:mousedown` for rows that change often.

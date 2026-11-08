@@ -7,6 +7,10 @@ function escapeRegExp(s) {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function signalDefinitionRegex(name) {
+	return new RegExp(`new\\s+(?:Wire\\.)?(?:State|Computed)\\s*\\(\\s*["'\`](${escapeRegExp(name)})["'\`]`, "g");
+}
+
 // Find the token matching `regex` on the line that contains the position
 function matchAtPosition(document, position, regex) {
 	const line = document.lineAt(position.line).text;
@@ -50,11 +54,7 @@ const provider = {
 		if (sig) {
 			const name = sig.match[1];
 			const origin = new vscode.Range(position.line, sig.start, position.line, sig.end);
-			const regex = new RegExp(
-				`new\\s+(?:Wire\\.)?(?:State|Computed)\\s*\\(\\s*["'\`](${escapeRegExp(name)})["'\`]`,
-				"g",
-			);
-			return findDefinitions(regex, origin);
+			return findDefinitions(signalDefinitionRegex(name), origin);
 		}
 
 		// name="component-name" -> <component name="component-name" ...> (the template, not an instance)
@@ -81,6 +81,13 @@ const provider = {
 				if (!/\binstance\b/.test(tag)) defs.push(link);
 			}
 			return defs;
+		}
+
+		// A bare signal name inside an expression, such as count in {{ count.get() }} or on:click="@{ count.update(...) }"
+		const wordRange = document.getWordRangeAtPosition(position, /[A-Za-z_$][\w$]*/);
+		if (wordRange) {
+			const definitions = await findDefinitions(signalDefinitionRegex(document.getText(wordRange)), wordRange);
+			return definitions.length ? definitions : null;
 		}
 
 		return null;

@@ -192,7 +192,7 @@ button.secondary:hover {
 	border-right: 1px solid var(--border);
 }
 
-.summary-strip component:last-child .summary-card {
+.summary-strip .summary-card:last-child {
 	border-right: none;
 }
 

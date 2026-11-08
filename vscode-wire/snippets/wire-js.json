@@ -21,5 +21,20 @@
 			"});"
 		],
 		"description": "Add a listener, stop() removes it"
+	},
+	"Wire: update": {
+		"prefix": "wire-update",
+		"body": ["${1:signal}.update((${2:value}) => ${3:value});"],
+		"description": "Set a State from its current value, the callback must return it"
+	},
+	"Wire: mount": {
+		"prefix": "wire-mount",
+		"body": ["Wire.mount(${1:parent});"],
+		"description": "Mount wires and bound elements your own code inserted"
+	},
+	"Wire: flush": {
+		"prefix": "wire-flush",
+		"body": ["Wire.flush();"],
+		"description": "Render pending updates now, for code that needs the new DOM straight away"
 	}
 }

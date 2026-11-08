@@ -11,37 +11,48 @@
 	</head>
 
 	<body>
-		<!-- ============================ Component templates ============================ -->
-
-		<component name="status-badge" arg:label arg:severity>
-			<span class="badge {{severity}}">{{label}}</span>
+		<component name="status-badge" arg:server>
+			<span class="badge {{ server.severity }}">{{ server.statusLabel }}</span>
 		</component>
 
 		<component name="usage-bar" arg:percent arg:severity>
 			<div class="usage">
-				<span class="usage-value {{severity}}">{{ Math.round(Number(percent)) }}%</span>
+				<span class="usage-value {{ severity }}">{{ Math.round(percent) }}%</span>
 				<div class="usage-track">
-					<div class="usage-fill {{severity}}" style="width: {{ Math.min(100, Number(percent)) }}%"></div>
+					<div class="usage-fill {{ severity }}" style="width: {{ Math.min(100, percent) }}%"></div>
 				</div>
 			</div>
 		</component>
 
-		<component name="summary-card" arg:label arg:value arg:detail arg:severity>
-			<div class="summary-card">
-				<div class="summary-label">{{label}}</div>
-				<div class="summary-value {{severity}}">{{value}}</div>
-				<div class="summary-detail">{{detail}}</div>
-			</div>
-		</component>
+		<component name="server-detail" arg:server arg:thresholds>
+			<section class="panel">
+				<div class="panel-title detail-title">
+					<h2>{{ server.name }}</h2>
+					<component instance name="status-badge" arg:server="@{ server }"></component>
+				</div>
+				<div class="panel-body detail">
+					<div class="detail-sub">{{ server.region }} · {{ server.restartCount }} restarts</div>
+					<div class="detail-insight">{{ describeCpuAgainstFleet(server) }}</div>
 
-		<component name="event-row" arg:time arg:severity arg:message>
-			<div class="event {{severity}}">
-				<span class="event-time">{{time}}</span>
-				<span>{{message}}</span>
-			</div>
-		</component>
+					<div class="mini-grid">
+						<div class="mini"><span class="label">CPU</span><span class="value {{ server.cpuSeverity }}">{{ server.cpuPercent }}%</span></div>
+						<div class="mini"><span class="label">Memory</span><span class="value {{ server.memorySeverity }}">{{ server.memoryPercent }}%</span></div>
+						<div class="mini"><span class="label">Latency</span><span class="value {{ server.latencySeverity }}">{{ server.latencyMs }} ms</span></div>
+						<div class="mini"><span class="label">Errors</span><span class="value {{ server.errorSeverity }}">{{ server.errorPercent }}%</span></div>
+					</div>
 
-		<!-- ================================= Page ================================= -->
+					{{{ detailChartSvg(server, thresholds) }}}
+					<div class="legend">
+						<span class="swatch primary"></span>CPU <span class="swatch secondary"></span>Latency <span class="swatch warning"></span>CPU warning
+					</div>
+
+					<div class="detail-actions">
+						<button class="primary" on:mousedown="@{ restart(server.name) }">Restart server</button>
+						<button class="secondary" on:mousedown="@{ selectedName.set(null) }">Close</button>
+					</div>
+				</div>
+			</section>
+		</component>
 
 		<header class="app-bar">
 			<div class="app-bar-inner">
@@ -49,29 +60,25 @@
 					<h1>Fleet Monitor</h1>
 					<span class="live-status">
 						<span class="live-dot"></span>
-						<wire with="@tickCount @paused">{{ (farm.paused.get() ? 'Paused' : 'Live') + ' · tick ' + farm.tickCount.get() }}</wire>
+						<wire with="@tickCount @paused">{{ paused.get() ? "Paused" : "Live" }} · tick {{ tickCount.get() }}</wire>
 					</span>
 				</div>
 				<div class="app-bar-actions">
-					<button class="secondary" onclick="farm.togglePause()">
-						<wire with="@paused">{{ farm.paused.get() ? 'Resume' : 'Pause' }}</wire>
+					<button class="secondary" on:click="@{ paused.update((isPaused) => !isPaused) }">
+						<wire with="@paused">{{ paused.get() ? "Resume" : "Pause" }}</wire>
 					</button>
-					<button class="primary" onclick="farm.injectIncident()">Inject incident</button>
+					<button class="primary" on:click="@{ injectIncident() }">Inject incident</button>
 				</div>
 			</div>
 		</header>
 
 		<div class="app">
-			<!-- Headline numbers: one component per card, all driven by a single Computed -->
 			<wire for="@summaryCards" each="card" class="summary-strip">
-				<component
-					instance
-					name="summary-card"
-					arg:label="@{ card.label }"
-					arg:value="@{ card.value }"
-					arg:detail="@{ card.detail }"
-					arg:severity="@{ card.severity }"
-				></component>
+				<div class="summary-card">
+					<div class="summary-label">{{ card.label }}</div>
+					<div class="summary-value {{ card.severity }}">{{ card.value }}</div>
+					<div class="summary-detail">{{ card.detail }}</div>
+				</div>
 			</wire>
 
 			<div class="layout">
@@ -80,7 +87,7 @@
 						<section class="panel">
 							<h2 class="panel-title">Fleet CPU</h2>
 							<div class="panel-body">
-								<wire with="@fleetCpuChartSvg">{{{ farm.fleetCpuChartSvg.get() }}}</wire>
+								<wire with="@fleetHistory @thresholds">{{{ fleetChartSvg(fleetHistory.get(), thresholds.get()) }}}</wire>
 								<div class="legend">
 									<span class="swatch primary"></span>Average CPU <span class="swatch warning"></span>Warning threshold
 									<span class="swatch critical"></span>Critical threshold
@@ -92,22 +99,16 @@
 							<h2 class="panel-title">Alert thresholds</h2>
 							<div class="panel-body">
 								<label class="control">
-									<span
-										>CPU warning <b><wire with="@thresholds">{{ farm.thresholds.get().cpuWarning }}</wire>%</b></span
-									>
-									<input type="range" min="30" max="95" value="65" oninput="this.value = farm.setCpuWarning(+this.value)" />
+									<span>CPU warning <b><wire to="@cpuWarning"></wire>%</b></span>
+									<input type="range" min="30" :max="@cpuWarningMax" bind:value="@cpuWarning" />
 								</label>
 								<label class="control">
-									<span
-										>CPU critical <b><wire with="@thresholds">{{ farm.thresholds.get().cpuCritical }}</wire>%</b></span
-									>
-									<input type="range" min="40" max="99" value="85" oninput="this.value = farm.setCpuCritical(+this.value)" />
+									<span>CPU critical <b><wire to="@cpuCritical"></wire>%</b></span>
+									<input type="range" :min="@cpuCriticalMin" max="99" bind:value="@cpuCritical" />
 								</label>
 								<label class="control">
-									<span
-										>Latency limit <b><wire with="@thresholds">{{ farm.thresholds.get().latencyLimitMs }}</wire> ms</b></span
-									>
-									<input type="range" min="100" max="600" step="10" value="250" oninput="this.value = farm.setLatencyLimit(+this.value)" />
+									<span>Latency limit <b><wire to="@latencyLimitMs"></wire> ms</b></span>
+									<input type="range" min="100" max="600" step="10" bind:value="@latencyLimitMs" />
 								</label>
 								<p class="hint">Statuses, counts, filters and charts all re-derive as you drag.</p>
 							</div>
@@ -115,12 +116,11 @@
 					</div>
 
 					<section class="panel">
-						<!-- Inputs live OUTSIDE any <wire> so they keep focus while the lists re-render -->
 						<div class="toolbar">
-							<input class="search" type="search" placeholder="Search servers or regions…" oninput="farm.setSearchText(this.value)" />
+							<input class="search" type="search" placeholder="Search servers or regions…" bind:value="@searchText" />
 							<label class="sort">
 								Sort by
-								<select onchange="farm.setSortKey(this.value)">
+								<select bind:value="@sortKey">
 									<option value="status">Status</option>
 									<option value="name">Name</option>
 									<option value="cpu">CPU</option>
@@ -132,13 +132,13 @@
 
 						<div class="filters">
 							<wire for="@statusChips" each="chip" class="chips">
-								<button class="chip {{ chip.isActive ? 'active' : '' }}" onclick="farm.setStatusFilter('{{chip.key}}')">
-									{{chip.label}} <b>{{chip.count}}</b>
+								<button class="chip" :class="@{ chip.key === statusFilter.get() ? 'active' : '' }" with="@statusFilter" on:click="@{ statusFilter.set(chip.key) }">
+									{{ chip.label }} <b>{{ chip.count }}</b>
 								</button>
 							</wire>
 							<wire for="@regionChips" each="chip" class="chips">
-								<button class="chip {{ chip.isActive ? 'active' : '' }}" onclick="farm.setRegionFilter('{{chip.key}}')">
-									{{chip.label}} <b>{{chip.count}}</b>
+								<button class="chip" :class="@{ chip.key === regionFilter.get() ? 'active' : '' }" with="@regionFilter" on:click="@{ regionFilter.set(chip.key) }">
+									{{ chip.label }} <b>{{ chip.count }}</b>
 								</button>
 							</wire>
 						</div>
@@ -156,74 +156,51 @@
 									<span>CPU trend</span>
 								</div>
 
-								<!--
-									These rows re-render every tick, so selection uses onmousedown:
-									a click is lost if the row is replaced between press and release.
-								-->
-								<wire for="@visibleServers" with="@selectedName" each="server">
-									<div class="table-row {{server.severity}} {{ server.name === farm.selectedName.get() ? 'selected' : '' }}" onmousedown="farm.select('{{server.name}}')">
+								<!-- Rows are replaced every tick, so selection uses mousedown: a click is lost if its row is replaced between press and release -->
+								<wire for="@visibleServers" each="server">
+									<div
+										class="table-row {{ server.severity }}"
+										:class="@{ server.name === selectedName.get() ? 'selected' : '' }"
+										with="@selectedName"
+										on:mousedown="@{ selectedName.update((name) => (name === server.name ? null : server.name)) }"
+									>
 										<div>
-											<div class="server-name">{{server.name}}</div>
-											<div class="server-region">{{server.region}}</div>
+											<div class="server-name">{{ server.name }}</div>
+											<div class="server-region">{{ server.region }}</div>
 										</div>
-										<component instance name="status-badge" arg:label="@{ server.statusLabel }" arg:severity="@{ server.severity }"></component>
+										<component instance name="status-badge" arg:server="@{ server }"></component>
 										<component instance name="usage-bar" arg:percent="@{ server.cpuPercent }" arg:severity="@{ server.cpuSeverity }"></component>
 										<component instance name="usage-bar" arg:percent="@{ server.memoryPercent }" arg:severity="@{ server.memorySeverity }"></component>
-										<span class="numeric {{server.latencySeverity}}">{{server.latencyMs}} ms</span>
+										<span class="numeric {{ server.latencySeverity }}">{{ server.latencyMs }} ms</span>
 										<span class="numeric">{{ formatCount(server.requestsPerSecond) }}/s</span>
-										<span class="numeric {{server.errorSeverity}}">{{server.errorPercent}}%</span>
-										<svg class="sparkline {{server.severity}}" viewBox="0 0 100 28" preserveAspectRatio="none">{{{ sparklineShapes(server.cpuHistory) }}}</svg>
+										<span class="numeric {{ server.errorSeverity }}">{{ server.errorPercent }}%</span>
+										{{{ sparklineSvg(server) }}}
 									</div>
 								</wire>
 
-								<wire if="@{ farm.visibleServers.get().length == 0 }" with="@visibleServers" class="empty">No servers match the current filters.</wire>
+								<wire if="@{ visibleServers.get().length === 0 }" with="@visibleServers" class="empty">No servers match the current filters.</wire>
 							</div>
 						</div>
 						<div class="table-footer">
-							<wire with="@visibleServers @assessedServers">{{ farm.visibleServers.get().length + ' of ' + farm.assessedServers.get().length + ' servers' }}</wire>
+							<wire with="@visibleServers @assessedServers">{{ visibleServers.get().length }} of {{ assessedServers.get().length }} servers</wire>
 						</div>
 					</section>
 				</main>
 
 				<aside class="side">
-					<!-- The selected server arrives as a 0-or-1 item list so the template can name it -->
-					<wire for="@selectedServerAsList" with="@selectedServerChartSvg" each="server">
-						<section class="panel">
-							<div class="panel-title detail-title">
-								<h2>{{server.name}}</h2>
-								<component instance name="status-badge" arg:label="@{ server.statusLabel }" arg:severity="@{ server.severity }"></component>
-							</div>
-							<div class="panel-body detail">
-								<div class="detail-sub">{{server.region}} · {{server.restartCount}} restarts</div>
-								<div class="detail-insight">{{ farm.describeCpuAgainstFleet(server) }}</div>
-
-								<div class="mini-grid">
-									<div class="mini"><span class="label">CPU</span><span class="value {{server.cpuSeverity}}">{{server.cpuPercent}}%</span></div>
-									<div class="mini"><span class="label">Memory</span><span class="value {{server.memorySeverity}}">{{server.memoryPercent}}%</span></div>
-									<div class="mini"><span class="label">Latency</span><span class="value {{server.latencySeverity}}">{{server.latencyMs}} ms</span></div>
-									<div class="mini"><span class="label">Errors</span><span class="value {{server.errorSeverity}}">{{server.errorPercent}}%</span></div>
-								</div>
-
-								{{{ farm.selectedServerChartSvg.get() }}}
-								<div class="legend">
-									<span class="swatch primary"></span>CPU <span class="swatch secondary"></span>Latency <span class="swatch warning"></span>CPU warning
-								</div>
-
-								<div class="detail-actions">
-									<button class="primary" onmousedown="farm.restart('{{server.name}}')">Restart server</button>
-									<button class="secondary" onmousedown="farm.select(null)">Close</button>
-								</div>
-							</div>
-						</section>
+					<wire if="@selectedServer">
+						<component instance name="server-detail" arg:server="@selectedServer" arg:thresholds="@thresholds"></component>
 					</wire>
-
-					<wire if="@{ farm.selectedServer.get() == null }" with="@selectedServer" class="panel empty">Select a server to see its detail view.</wire>
+					<wire else class="panel empty">Select a server to see its detail view.</wire>
 
 					<section class="panel">
 						<h2 class="panel-title">Events</h2>
 						<div class="events">
 							<wire for="@eventEntries" each="entry">
-								<component instance name="event-row" arg:time="@{ entry.time }" arg:severity="@{ entry.severity }" arg:message="@{ entry.message }"></component>
+								<div class="event {{ entry.severity }}">
+									<span class="event-time">{{ entry.time }}</span>
+									<span>{{ entry.message }}</span>
+								</div>
 							</wire>
 						</div>
 					</section>

@@ -18,12 +18,12 @@
 
 		<div class="cols">
 			<section class="case">
-				<h3>State · Computed chain</h3>
+				<h3>State · Computed chain · on:event</h3>
 				<div class="live" id="live-chain">
 					<div class="row">
-						<button onclick="count.update((n) => n - 1)">−</button>
+						<button on:click="@{ count.update((n) => n - 1) }">−</button>
 						<b><wire to="@count"></wire></b>
-						<button onclick="count.update((n) => n + 1)">+</button>
+						<button on:click="@{ count.update((n) => n + 1) }">+</button>
 						double <wire to="@double"></wire> · quadruple <wire to="@quadruple"></wire>
 					</div>
 				</div>
@@ -39,7 +39,7 @@ const quadruple = new Wire.Computed("quadruple", [double], (v) =&gt; v * 2);</pr
 				<h3>listen() on a Computed</h3>
 				<div class="live" id="live-listen">
 					<div class="row">
-						<button onclick="toggleListener()"><wire with="@listening">{{ listening.get() ? "Stop listening" : "Listen to double" }}</wire></button>
+						<button on:click="@{ toggleListener() }"><wire with="@listening">{{ listening.get() ? "Stop listening" : "Listen to double" }}</wire></button>
 						<span class="muted">then use + and − above</span>
 					</div>
 					<div><wire for="@log" each="line"><div>{{ line }}</div></wire></div>
@@ -52,11 +52,69 @@ stop();   // once per batch, latest value, only if it changed</pre
 			</section>
 
 			<section class="case">
+				<h3>on: statements · event object · loop scope</h3>
+				<div class="live" id="live-events">
+					<input placeholder="type a name, press Enter" on:keydown="@{ if (event.key === 'Enter') { addedNames.update((list) => [...list, event.target.value]); event.target.value = '' } }" />
+					<div><wire for="@addedNames" each="entry"><button class="tag" on:click="@{ addedNames.update((list) => list.filter((other) => other !== entry)) }">{{ entry }} ×</button> </wire></div>
+				</div>
+				<pre data-source-of="live-events"></pre>
+			</section>
+
+			<section class="case">
+				<h3>:attr · one-way attribute bindings</h3>
+				<div class="live" id="live-attributes">
+					<div class="row">
+						<button on:click="@{ busy.update((isBusy) => !isBusy) }">toggle busy</button>
+						<button class="btn" :disabled="@busy" :class="@{ busy.get() ? 'busy' : '' }" with="@busy">Save</button>
+						<a :href="@{ '#' + count.get() }" :title="@{ 'count is ' + count.get() }" with="@count">link to #count</a>
+					</div>
+					<div class="muted">the button is the same element each time, only its attributes change</div>
+				</div>
+				<pre data-source-of="live-attributes"></pre>
+			</section>
+
+			<section class="case">
+				<h3>bind:value · bind:checked</h3>
+				<div class="live" id="live-bind">
+					<div class="row">
+						<input bind:value="@fullName" placeholder="text" />
+						<input type="number" bind:value="@age" style="width: 5em" />
+						<input type="checkbox" bind:checked="@subscribed" />
+						<select bind:value="@color">
+							<option value="red">red</option>
+							<option value="blue">blue</option>
+						</select>
+						<input type="range" bind:value="@volume" />
+					</div>
+					<div>
+						<wire with="@fullName @age @subscribed @color @volume">
+							{{ fullName.get() }} · {{ typeof age.get() }} {{ age.get() }} · {{ subscribed.get() }} · {{ color.get() }} · {{ volume.get() }}
+						</wire>
+					</div>
+				</div>
+				<pre data-source-of="live-bind"></pre>
+			</section>
+
+			<section class="case">
+				<h3>Editing items in a list</h3>
+				<div class="live" id="live-items">
+					<wire for="@notes" each="note">
+						<div class="row">
+							<input :value="@{ note.text }" on:input="@{ note.text = event.target.value; notes.set(notes.get()) }" />
+							<span class="muted">#{{ note.id }}</span>
+						</div>
+					</wire>
+					<div class="muted"><wire with="@notes">{{ JSON.stringify(notes.get()) }}</wire></div>
+				</div>
+				<pre data-source-of="live-items"></pre>
+			</section>
+
+			<section class="case">
 				<h3>Batching · Wire.flush()</h3>
 				<div class="live" id="live-batch">
 					<div class="row">
-						<button onclick="for (let i = 0; i < 5; i++) batchValue.update((n) => n + 1)">+1 five times</button>
-						<button onclick="setThenFlush()">set, read DOM, flush, read DOM</button>
+						<button on:click="@{ for (let i = 0; i < 5; i++) batchValue.update((n) => n + 1) }">+1 five times</button>
+						<button on:click="@{ setThenFlush() }">set, read DOM, flush, read DOM</button>
 					</div>
 					<div>
 						value <span id="batch-value"><wire to="@batchValue"></wire></span> · squared <wire to="@batchSquared"></wire> · Computed ran
@@ -71,13 +129,13 @@ stop();   // once per batch, latest value, only if it changed</pre
 				<h3>Equality · mutate in place</h3>
 				<div class="live" id="live-equality">
 					<div class="row">
-						<button onclick="point.set({ ...point.get() })">equal copy</button>
-						<button onclick="point.update((p) => ({ ...p, x: p.x + 1 }))">changed copy</button>
-						<button onclick="point.update((p) => { p.x += 1; return p; })">mutate in place</button>
+						<button on:click="@{ point.set({ ...point.get() }) }">equal copy</button>
+						<button on:click="@{ point.update((p) => ({ ...p, x: p.x + 1 })) }">changed copy</button>
+						<button on:click="@{ point.update((p) => { p.x += 1; return p; }) }">mutate in place</button>
 					</div>
 					<div class="row">
-						<button onclick="number.set(5)">same number</button>
-						<button onclick="number.update((n) => n + 1)">new number</button>
+						<button on:click="@{ number.set(5) }">same number</button>
+						<button on:click="@{ number.update((n) => n + 1) }">new number</button>
 					</div>
 					<div>point <wire with="@point">{{ JSON.stringify(point.get()) }}</wire> · listener ran <wire to="@pointRuns"></wire>×</div>
 					<div>number <wire to="@number"></wire> · listener ran <wire to="@numberRuns"></wire>×</div>
@@ -92,7 +150,7 @@ stop();   // once per batch, latest value, only if it changed</pre
 			<section class="case">
 				<h3>update() must return</h3>
 				<div class="live" id="live-update">
-					<div class="row"><button onclick="updateWithoutReturn()">update() with no return</button></div>
+					<div class="row"><button on:click="@{ updateWithoutReturn() }">update() with no return</button></div>
 					<div class="err"><wire to="@updateReport"></wire></div>
 				</div>
 				<pre data-source-of="live-update"></pre>
@@ -101,7 +159,7 @@ stop();   // once per batch, latest value, only if it changed</pre
 			<section class="case">
 				<h3>Escaping · {{ }} and {{{ }}}</h3>
 				<div class="live" id="live-escaping">
-					<input oninput="userText.set(this.value)" placeholder="type markup or {{ 1 + 1 }} or @{ 1 + 1 }" />
+					<input bind:value="@userText" placeholder="type markup or {{ 1 + 1 }} or @{ 1 + 1 }" />
 					<div>to: <wire to="@userText"></wire></div>
 					<div>{{ }}: <wire with="@userText">{{ userText.get() }}</wire></div>
 					<div>{{{ }}}: <wire>{{{ trustedMarkup }}}</wire></div>
@@ -113,7 +171,7 @@ stop();   // once per batch, latest value, only if it changed</pre
 				<h3>Expressions · with · once · stale</h3>
 				<div class="live" id="live-expressions">
 					<div class="row">
-						a <button onclick="a.update((n) => n + 1)">+</button> <wire to="@a"></wire> b <button onclick="b.update((n) => n + 1)">+</button> <wire to="@b"></wire>
+						a <button on:click="@{ a.update((n) => n + 1) }">+</button> <wire to="@a"></wire> b <button on:click="@{ b.update((n) => n + 1) }">+</button> <wire to="@b"></wire>
 					</div>
 					<div>product, with a and b: <wire with="@a @b">{{ a.get() * b.get() }}</wire></div>
 					<div>names only a, so b goes stale: <wire with="@a">{{ a.get() }} + {{ b.get() }}</wire></div>
@@ -127,14 +185,14 @@ stop();   // once per batch, latest value, only if it changed</pre
 				<h3>if · else if · else</h3>
 				<div class="live" id="live-conditions">
 					<div class="row">
-						<input type="range" min="0" max="100" value="60" oninput="score.set(Number(this.value))" />
+						<input type="range" min="0" max="100" bind:value="@score" />
 						<wire to="@score"></wire>
 						<wire if="@{ score.get() >= 80 }" with="@score">great</wire>
 						<wire else if="@{ score.get() >= 50 }">ok</wire>
 						<wire else>low</wire>
 					</div>
 					<div class="row">
-						<button onclick="flag.update((f) => !f)">toggle</button>
+						<button on:click="@{ flag.update((f) => !f) }">toggle</button>
 						<wire if="@flag">on</wire>
 						<wire else>off</wire>
 					</div>
@@ -146,10 +204,10 @@ stop();   // once per batch, latest value, only if it changed</pre
 				<h3>Lists · each · nested · component per row</h3>
 				<div class="live" id="live-lists">
 					<div class="row">
-						<button onclick="sortTodos('title')">sort title</button>
-						<button onclick="sortTodos('id')">sort id</button>
-						<button onclick="addTodo()">add</button>
-						<button onclick="todos.update((t) => { t[0].done = !t[0].done; return t; })">mutate first in place</button>
+						<button on:click="@{ sortTodos('title') }">sort title</button>
+						<button on:click="@{ sortTodos('id') }">sort id</button>
+						<button on:click="@{ addTodo() }">add</button>
+						<button on:click="@{ todos.update((t) => { t[0].done = !t[0].done; return t; }) }">mutate first in place</button>
 					</div>
 					<component name="todo-info" arg:id arg:tag-count>
 						<small class="muted">#{{ id }} · {{ tagCount }} tags · loop variable: {{ typeof todo }}</small>
@@ -160,7 +218,7 @@ stop();   // once per batch, latest value, only if it changed</pre
 							<span>{{ todo.title }}</span>
 							<wire for="@{ todo.tags }" each="tag"><span class="tag">{{ tag }}</span></wire>
 							<component instance name="todo-info" arg:id="@{ todo.id }" arg:tag-count="@{ todo.tags.length }"></component>
-							<button onclick="toggleTodo({{ todo.id }})">toggle</button>
+							<button on:click="@{ toggleTodo(todo.id) }">toggle</button>
 						</div>
 					</wire>
 				</div>
@@ -171,10 +229,10 @@ stop();   // once per batch, latest value, only if it changed</pre
 				<h3>Repeat n times · filter by expression</h3>
 				<div class="live" id="live-repeat">
 					<div class="row">
-						<button onclick="stars.update((n) => n % 5 + 1)">stars</button>
+						<button on:click="@{ stars.update((n) => n % 5 + 1) }">stars</button>
 						<wire for="@{ Array(stars.get()).fill(0) }" with="@stars">★</wire>
 					</div>
-					<input oninput="filter.set(this.value)" placeholder="filter names" />
+					<input bind:value="@filter" placeholder="filter names" />
 					<div>
 						<wire for="@{ names.get().filter((name) => name.includes(filter.get())) }" with="@names @filter" each="name"><span class="tag">{{ name }}</span> </wire>
 					</div>
@@ -187,7 +245,7 @@ stop();   // once per batch, latest value, only if it changed</pre
 				<div class="live" id="live-components">
 					<component instance name="card" arg:title="Literal"></component>
 					<component instance name="card" arg:title="@userName" arg:unit-label="@{ 'kg' }"></component>
-					<div class="row"><button onclick="userName.update((n) => n === 'Ada' ? 'Grace' : 'Ada')">rename</button></div>
+					<div class="row"><button on:click="@{ userName.update((n) => n === 'Ada' ? 'Grace' : 'Ada') }">rename</button></div>
 					<component name="card" arg:title arg:unit-label>
 						<div><b>{{ title }}</b> {{ unitLabel }} · unitLabel is null: {{ unitLabel === null }}</div>
 					</component>
@@ -208,7 +266,13 @@ stop();   // once per batch, latest value, only if it changed</pre
 					</component>
 					<ul><component instance name="node" arg:item="@tree"></component></ul>
 					<div class="row">
-						<button onclick="tree.update((t) => { t.children[0].children.push({ name: 'a' + (t.children[0].children.length + 1), children: [] }); return t; })">
+						<button
+							on:click="@{
+								const branch = tree.get().children[0];
+								branch.children.push({ name: 'a' + (branch.children.length + 1), children: [] });
+								tree.set(tree.get());
+							}"
+						>
 							grow a branch in place
 						</button>
 					</div>
@@ -236,8 +300,8 @@ stop();   // once per batch, latest value, only if it changed</pre
 					</wire>
 					<div class="row">
 						<wire for="@items" with="@tick" each="item"><button class="stable">{{ item.name }}</button></wire>
-						<button onclick="items.set(items.get())">set same object</button>
-						<button onclick="checkStableElement()">same element?</button>
+						<button on:click="@{ items.set(items.get()) }">set same object</button>
+						<button on:click="@{ checkStableElement() }">same element?</button>
 						<wire to="@stableReport"></wire>
 					</div>
 				</div>
@@ -248,7 +312,7 @@ stop();   // once per batch, latest value, only if it changed</pre
 				<h3>Removed wires stop rendering</h3>
 				<div class="live" id="live-lifecycle">
 					<div class="row">
-						<button onclick="panelOpen.update((open) => !open)">toggle panel</button>
+						<button on:click="@{ panelOpen.update((open) => !open) }">toggle panel</button>
 						panel renders so far: <wire to="@renderCount"></wire>
 					</div>
 					<wire if="@panelOpen"><div class="chip">panel <wire with="@tick">{{ countRender() }}</wire></div></wire>
@@ -259,7 +323,7 @@ stop();   // once per batch, latest value, only if it changed</pre
 			<section class="case">
 				<h3>Tables · build the whole table in one expression</h3>
 				<div class="live" id="live-table">
-					<div class="row"><button onclick="randomiseServers()">randomise cpu</button></div>
+					<div class="row"><button on:click="@{ randomiseServers() }">randomise cpu</button></div>
 					<wire with="@servers">{{{ serverTable(servers.get()) }}}</wire>
 				</div>
 				<pre data-source-of="live-table"></pre>
@@ -268,7 +332,7 @@ stop();   // once per batch, latest value, only if it changed</pre
 			<section class="case">
 				<h3>Insert wires from JavaScript · Wire.mount()</h3>
 				<div class="live" id="live-insert">
-					<div class="row"><button onclick="insertWire()">insert a wire</button></div>
+					<div class="row"><button on:click="@{ insertWire() }">insert a wire</button></div>
 					<div id="insert-target"></div>
 				</div>
 				<pre data-source-of="live-insert"></pre>
@@ -296,7 +360,7 @@ Wire.mount(target);</pre
 						<wire to="@ghost"></wire> ← unknown signal, outlined · <wire to="@count"></wire> ← still renders · <wire banana="1"></wire> ← unknown attribute
 					</div>
 					<div class="row">
-						<button onclick="errorTotal.set(Wire.errors.length)">count Wire.errors</button>
+						<button on:click="@{ errorTotal.set(Wire.errors.length) }">count Wire.errors</button>
 						<wire to="@errorTotal"></wire>
 					</div>
 				</div>
@@ -313,7 +377,7 @@ Wire.mount(target);</pre
 			<section class="case">
 				<h3>Update cycles stop after 100 rounds</h3>
 				<div class="live" id="live-cycle">
-					<div class="row"><button onclick="makeCycle()">listener that sets its own signal</button></div>
+					<div class="row"><button on:click="@{ makeCycle() }">listener that sets its own signal</button></div>
 					<div class="err"><wire to="@cycleReport"></wire></div>
 				</div>
 				<pre data-source-of="live-cycle"></pre>

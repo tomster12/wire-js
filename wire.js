@@ -239,14 +239,15 @@
 
 	// Expressions and templates
 
-	function evaluateWithVariables(code, scope = {}) {
+	function evaluateWithVariables(code, scope = {}, isStatements = false) {
 		// Every signal is available by its name, and a loop variable or component argument of the same name wins
 		const variables = { ...Object.fromEntries(signalsByName), ...scope };
 		const argumentNames = Object.keys(variables);
-		const cacheKey = `${argumentNames.join(",")}\u0000${code}`;
+		const cacheKey = `${isStatements}\u0000${argumentNames.join(",")}\u0000${code}`;
 		let compiledFunction = compiledFunctionCache.get(cacheKey);
 		if (!compiledFunction) {
-			compiledFunction = new Function(...argumentNames, `"use strict"; return (${code});`);
+			const body = isStatements ? code : `return (${code});`;
+			compiledFunction = new Function(...argumentNames, `"use strict"; ${body}`);
 			compiledFunctionCache.set(cacheKey, compiledFunction);
 		}
 		return compiledFunction(...Object.values(variables));
@@ -563,8 +564,93 @@
 		}
 	}
 
+	class BoundElement extends ReactiveElement {
+		constructor(element, scope) {
+			super(element, scope);
+			this.sourceName = `<${element.localName}>`;
+			this.oneWayBindings = [];
+			this.appliedClassNames = [];
+
+			const watchedSignals = [];
+			if (element.hasAttribute("with")) {
+				watchedSignals.push(...parseAttribute("with", element.getAttribute("with"), ["signals"], this.sourceName).signals);
+			}
+
+			for (const attributeName of element.getAttributeNames()) {
+				const attributeValue = element.getAttribute(attributeName);
+				if (attributeName.startsWith("on:")) {
+					this.listenForEvent(attributeName.slice("on:".length), parseAttribute(attributeName, attributeValue, ["expr"], this.sourceName));
+				} else if (attributeName.startsWith("bind:")) {
+					const signal = parseAttribute(attributeName, attributeValue, ["signal"], this.sourceName).signal;
+					this.bindBothWays(attributeName.slice("bind:".length), signal);
+					watchedSignals.push(signal);
+				} else if (attributeName.startsWith(":")) {
+					const attribute = parseAttribute(attributeName, attributeValue, ["signal", "expr"], this.sourceName);
+					this.oneWayBindings.push({ name: attributeName.slice(1), attribute });
+					if (attribute.type === "signal") watchedSignals.push(attribute.signal);
+				}
+			}
+
+			this.watch(watchedSignals);
+		}
+
+		listenForEvent(eventName, attribute) {
+			this.element.addEventListener(eventName, (event) => {
+				try {
+					evaluateWithVariables(attribute.code, { ...this.scope, event }, true);
+				} catch (error) {
+					reportError(error);
+				}
+			});
+		}
+
+		bindBothWays(name, signal) {
+			if (name !== "value" && name !== "checked") throw new WireError(`bind: only supports value and checked, found 'bind:${name}'`);
+			if (!(signal instanceof State)) throw new WireError(`bind:${name} needs a State, but '${signal.name}' is a Computed`);
+
+			this.oneWayBindings.push({ name, attribute: { type: "signal", signal } });
+			const isNumeric = this.element.type === "number" || this.element.type === "range";
+			const eventName = name === "checked" || this.element.localName === "select" ? "change" : "input";
+			this.element.addEventListener(eventName, () => {
+				if (name === "checked") signal.set(this.element.checked);
+				else if (isNumeric) signal.set(this.element.value === "" ? null : Number(this.element.value));
+				else signal.set(this.element.value);
+			});
+		}
+
+		render() {
+			for (const { name, attribute } of this.oneWayBindings) {
+				this.applyBinding(name, evaluateAttribute(attribute, this.scope));
+			}
+		}
+
+		applyBinding(name, value) {
+			if (name === "value") {
+				const text = value == null ? "" : String(value);
+				// Typing "1." into a number field must not be rewritten to "1" while the numbers match
+				const isSameNumber = (this.element.type === "number" || this.element.type === "range") && this.element.value !== "" && Number(this.element.value) === Number(value);
+				if (this.element.value !== text && !isSameNumber) this.element.value = text;
+			} else if (name === "checked" || name === "selected") {
+				this.element[name] = Boolean(value);
+			} else if (name === "class") {
+				this.applyClassNames(value ? String(value).split(/\s+/).filter(Boolean) : []);
+			} else if (value === false || value == null) {
+				this.element.removeAttribute(name);
+			} else {
+				this.element.setAttribute(name, value === true ? "" : String(value));
+			}
+		}
+
+		applyClassNames(classNames) {
+			// Only the names this binding added are removed, so static classes survive
+			this.element.classList.remove(...this.appliedClassNames);
+			this.element.classList.add(...classNames);
+			this.appliedClassNames = classNames;
+		}
+	}
+
 	const elementClassesByTagName = { wire: WireElement, component: ComponentElement };
-	const elementSelector = Object.keys(elementClassesByTagName).join(",");
+	const contentElementSelector = Object.keys(elementClassesByTagName).join(",");
 
 	function registerComponentTemplate(name, componentTemplate) {
 		if (componentTemplatesByName.has(name)) throw new WireError(`Component '${name}' is already registered`);
@@ -582,14 +668,23 @@
 		return element.localName === "component" && !element.hasAttribute("instance");
 	}
 
+	function hasBindingAttributes(element) {
+		if (element.localName in elementClassesByTagName) return false;
+		return element.getAttributeNames().some((name) => name.startsWith(":") || name.startsWith("on:") || name.startsWith("bind:"));
+	}
+
 	function mountElements(parent, scope = {}) {
-		const allElements = [...parent.querySelectorAll(elementSelector)];
-		const outermostElements = allElements.filter((element) => !allElements.some((other) => other !== element && other.contains(element)));
+		// A wire or component owns its content, so only the outermost ones mount here, the rest mount when their owner renders
+		const contentElements = [...parent.querySelectorAll(contentElementSelector)];
+		const outermostContentElements = contentElements.filter((element) => !contentElements.some((other) => other !== element && other.contains(element)));
+		const boundElements = [...parent.querySelectorAll("*")].filter(
+			(element) => hasBindingAttributes(element) && !contentElements.some((contentElement) => contentElement.contains(element)),
+		);
 
 		// Definitions register first so an instance placed above its definition still finds it
-		const definitions = outermostElements.filter(isComponentDefinition);
-		const others = outermostElements.filter((element) => !isComponentDefinition(element));
-		for (const element of [...definitions, ...others]) {
+		const definitions = outermostContentElements.filter(isComponentDefinition);
+		const others = outermostContentElements.filter((element) => !isComponentDefinition(element));
+		for (const element of [...definitions, ...others, ...boundElements]) {
 			// One element failing must not stop the others
 			try {
 				mountElement(element, scope);
@@ -603,11 +698,11 @@
 	function mountElement(element, scope) {
 		if (mountedElements.has(element)) return;
 		mountedElements.add(element);
-		element.__wireInstance = new elementClassesByTagName[element.localName](element, scope);
+		element.__wireInstance = new (elementClassesByTagName[element.localName] ?? BoundElement)(element, scope);
 	}
 
 	function disposeNestedElements(parent) {
-		for (const nestedElement of parent.querySelectorAll(elementSelector)) {
+		for (const nestedElement of parent.querySelectorAll("*")) {
 			nestedElement.__wireInstance?.dispose();
 		}
 	}

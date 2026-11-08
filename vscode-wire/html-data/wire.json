@@ -3,7 +3,7 @@
 	"tags": [
 		{
 			"name": "wire",
-			"description": "Wire.js reactive element. Its own content is a template: `{{ expr }}` writes an escaped result, `{{{ expr }}}` writes unescaped markup. Re-renders only for the signals named in `to`, `for`, `if` and `with`. Always close it, `<wire />` is not valid HTML.",
+			"description": "Wire.js reactive element. Its own content is a template: `{{ expr }}` writes an escaped result, `{{{ expr }}}` writes unescaped markup. Re-renders only for the signals named in `to`, `for`, `if` and `with`. Always close it, `<wire />` is not valid HTML. Cannot carry `on:`, `:` or `bind:` attributes.",
 			"attributes": [
 				{
 					"name": "to",
@@ -19,7 +19,7 @@
 				},
 				{
 					"name": "each",
-					"description": "Name of the variable that holds the current item inside a `for`. Literal only; requires `for`."
+					"description": "Name of the variable that holds the current item inside a `for`. Literal only, must be a valid JavaScript variable name; requires `for`."
 				},
 				{
 					"name": "if",
@@ -30,13 +30,15 @@
 					"description": "Render when the directly preceding `<wire>` sibling's `if` (or `else`) was false. May carry its own `if` to chain (`else if`). Flag attribute.",
 					"valueSet": "v"
 				},
+				{ "name": "id", "description": "A plain attribute, never parsed as Wire syntax. `class`, `style`, `title`, `data-*` and `aria-*` are plain attributes too; any other attribute throws." },
+				{ "name": "class", "description": "CSS classes. A plain attribute, never parsed as Wire syntax." },
 				{ "name": "style", "description": "Inline style. A plain attribute, never parsed as Wire syntax." },
-				{ "name": "class", "description": "CSS classes. A plain attribute, never parsed as Wire syntax." }
+				{ "name": "title", "description": "A plain attribute, never parsed as Wire syntax." }
 			]
 		},
 		{
 			"name": "component",
-			"description": "Wire.js component. Without `instance` it defines a template (declared args via `arg:name`); with `instance` it renders that template. A component template sees only its own args and globals. Always close it.",
+			"description": "Wire.js component. Without `instance` it defines a template (declared args via `arg:name`); with `instance` it renders that template. A component template sees only its own args, signals and globals. Always close it. Cannot carry `on:`, `:` or `bind:` attributes.",
 			"attributes": [
 				{
 					"name": "name",
@@ -49,14 +51,53 @@
 				},
 				{
 					"name": "arg:",
-					"description": "Component argument, written `arg:<name>`. On a template definition it is a bare flag declaring an argument (e.g. `arg:title`); on an instance it takes a literal, a signal (`@name`, reactive) or an expression (`@{ expr }`, typed, evaluated when the instance renders). Arguments left out are `null`. Use `{{ name }}` inside the template to read it."
+					"description": "Component argument, written `arg:<name>`. HTML lowercases attribute names, so write multi-word names in kebab-case: `arg:unit-label` is `unitLabel` in the template. On a template definition it is a bare flag declaring an argument; on an instance it takes a literal (always a string), a signal (`@name`, reactive) or an expression (`@{ expr }`, typed, evaluated when the instance renders). Arguments left out are `null`, undeclared ones throw."
 				},
+				{ "name": "id", "description": "A plain attribute, never parsed as Wire syntax." },
+				{ "name": "class", "description": "CSS classes. A plain attribute, never parsed as Wire syntax." },
 				{ "name": "style", "description": "Inline style. A plain attribute, never parsed as Wire syntax." },
-				{ "name": "class", "description": "CSS classes. A plain attribute, never parsed as Wire syntax." }
+				{ "name": "title", "description": "A plain attribute, never parsed as Wire syntax." }
 			]
 		}
 	],
-	"globalAttributes": [],
+	"globalAttributes": [
+		{
+			"name": "with",
+			"description": "Wire.js: signals (`@a @b`) that a bound element's `:name=\"@{ expr }\"` expressions read. The expressions are re-evaluated when any of them changes."
+		},
+		{ "name": "on:click", "description": "Wire.js event: run `@{ code }` when the event fires. The code is statements with the loop variables, signals and `event` in scope." },
+		{ "name": "on:input", "description": "Wire.js event: run `@{ code }` on each input. The code is statements with the loop variables, signals and `event` in scope." },
+		{ "name": "on:change", "description": "Wire.js event: run `@{ code }` when the value is committed. The code is statements with the loop variables, signals and `event` in scope." },
+		{ "name": "on:submit", "description": "Wire.js event: run `@{ code }` on submit. Call `event.preventDefault()` yourself to stop the page navigating." },
+		{ "name": "on:keydown", "description": "Wire.js event: run `@{ code }` on key down, for example `@{ if (event.key === 'Enter') add() }`." },
+		{ "name": "on:keyup", "description": "Wire.js event: run `@{ code }` on key up." },
+		{ "name": "on:mousedown", "description": "Wire.js event: run `@{ code }` on press. Use it for rows that re-render often, since a click is lost if its element is replaced before release." },
+		{ "name": "on:focus", "description": "Wire.js event: run `@{ code }` when the element gains focus." },
+		{ "name": "on:blur", "description": "Wire.js event: run `@{ code }` when the element loses focus." },
+		{
+			"name": "bind:value",
+			"description": "Wire.js two-way binding: the field shows the signal and typing sets it. Takes a State (`@name`). `number` and `range` inputs give numbers. For `<select>` it listens to `change`."
+		},
+		{
+			"name": "bind:checked",
+			"description": "Wire.js two-way binding: a checkbox's checked state and a State (`@name`) as a boolean. For radios use `:checked` with `on:change`."
+		},
+		{ "name": ":class", "description": "Wire.js binding: adds and removes only its own class names, so static classes stay. Takes a signal (`@name`) or an expression (`@{ expr }` with `with`)." },
+		{ "name": ":style", "description": "Wire.js binding: replaces the whole `style` attribute. Takes a signal (`@name`) or an expression (`@{ expr }` with `with`)." },
+		{ "name": ":disabled", "description": "Wire.js binding: `true` sets the attribute, `false`, `null` or `undefined` removes it." },
+		{ "name": ":hidden", "description": "Wire.js binding: `true` sets the attribute, `false`, `null` or `undefined` removes it." },
+		{ "name": ":checked", "description": "Wire.js binding: written as the `checked` property." },
+		{ "name": ":selected", "description": "Wire.js binding: written as the `selected` property." },
+		{ "name": ":value", "description": "Wire.js binding: written as the `value` property, and left alone if the field already shows it." },
+		{ "name": ":href", "description": "Wire.js binding: sets the attribute from a signal or expression, and removes it for `false`, `null` or `undefined`." },
+		{ "name": ":src", "description": "Wire.js binding: sets the attribute from a signal or expression, and removes it for `false`, `null` or `undefined`." },
+		{ "name": ":title", "description": "Wire.js binding: sets the attribute from a signal or expression, and removes it for `false`, `null` or `undefined`." },
+		{ "name": ":placeholder", "description": "Wire.js binding: sets the attribute from a signal or expression, and removes it for `false`, `null` or `undefined`." },
+		{ "name": ":min", "description": "Wire.js binding: sets the attribute from a signal or expression, for example a range limited by another signal." },
+		{ "name": ":max", "description": "Wire.js binding: sets the attribute from a signal or expression, for example a range limited by another signal." },
+		{ "name": ":aria-label", "description": "Wire.js binding: sets the attribute from a signal or expression. To write the text `false` use `@{ String(x) }`." },
+		{ "name": ":aria-expanded", "description": "Wire.js binding: `false` removes the attribute, so write `@{ String(open.get()) }` to keep the text `false`." }
+	],
 	"valueSets": [
 		{ "name": "v", "values": [] }
 	]

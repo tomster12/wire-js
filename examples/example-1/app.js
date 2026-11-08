@@ -79,6 +79,19 @@ function updateWithoutReturn() {
 const userText = new Wire.State("userText", "");
 const trustedMarkup = "<b>bold</b> and <i>italic</i> from our own code";
 
+// Events and bindings
+const addedNames = new Wire.State("addedNames", ["ada"]);
+const busy = new Wire.State("busy", false);
+const fullName = new Wire.State("fullName", "Ada");
+const age = new Wire.State("age", 36);
+const subscribed = new Wire.State("subscribed", true);
+const color = new Wire.State("color", "blue");
+const volume = new Wire.State("volume", 30);
+const notes = new Wire.State("notes", [
+	{ id: 1, text: "first" },
+	{ id: 2, text: "second" },
+]);
+
 // Expressions, conditions
 const a = new Wire.State("a", 2);
 const b = new Wire.State("b", 3);

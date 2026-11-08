@@ -156,3 +156,7 @@ ul {
 .err {
 	font: 11.5px var(--mono);
 }
+
+.busy {
+	opacity: 0.5;
+}

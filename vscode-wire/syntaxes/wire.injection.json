@@ -7,7 +7,11 @@
 		{ "include": "#attribute-expression" },
 		{ "include": "#with-signals" },
 		{ "include": "#signal-reference" },
-		{ "include": "#arg-attribute" }
+		{ "include": "#arg-flag" },
+		{ "include": "#arg-attribute" },
+		{ "include": "#on-attribute" },
+		{ "include": "#bind-attribute" },
+		{ "include": "#bound-attribute" }
 	],
 	"repository": {
 		"raw-expression": {
@@ -79,14 +83,85 @@
 				"2": { "name": "variable.other.signal.wire" }
 			}
 		},
-		"arg-attribute": {
-			"comment": "Component argument attribute names: arg:title",
-			"match": "(?<=\\s)(arg)(:)([\\w-]+)(?=[\\s=>/])",
+		"arg-flag": {
+			"comment": "A component argument declared without a value: arg:title",
+			"match": "(?<=\\s)(arg)(:)([\\w-]+)(?=[\\s>/]|$)",
 			"captures": {
 				"1": { "name": "entity.other.attribute-name.wire keyword.control.wire" },
 				"2": { "name": "punctuation.separator.namespace.wire" },
 				"3": { "name": "entity.other.attribute-name.localname.wire variable.parameter.wire" }
 			}
+		},
+		"arg-attribute": {
+			"comment": "A component argument with a value: arg:title=\"@{ expr }\". The whole attribute is matched, otherwise the HTML grammar loses track of the value",
+			"name": "meta.attribute.arg.wire",
+			"begin": "(?<=\\s)(arg)(:)([\\w-]+)(\\s*=\\s*)([\"'])",
+			"beginCaptures": {
+				"1": { "name": "entity.other.attribute-name.wire keyword.control.wire" },
+				"2": { "name": "punctuation.separator.namespace.wire" },
+				"3": { "name": "entity.other.attribute-name.localname.wire variable.parameter.wire" },
+				"4": { "name": "punctuation.separator.key-value.html" },
+				"5": { "name": "string.quoted.double.html punctuation.definition.string.begin.html" }
+			},
+			"end": "\\5",
+			"endCaptures": {
+				"0": { "name": "string.quoted.double.html punctuation.definition.string.end.html" }
+			},
+			"contentName": "string.quoted.double.html",
+			"patterns": [{ "include": "#attribute-expression" }, { "include": "#signal-reference" }]
+		},
+		"on-attribute": {
+			"comment": "An event handler: on:click=\"@{ statements }\"",
+			"name": "meta.attribute.on.wire",
+			"begin": "(?<=\\s)(on)(:)([\\w-]+)(\\s*=\\s*)([\"'])",
+			"beginCaptures": {
+				"1": { "name": "entity.other.attribute-name.wire keyword.control.wire" },
+				"2": { "name": "punctuation.separator.namespace.wire" },
+				"3": { "name": "entity.other.attribute-name.localname.wire support.function.event.wire" },
+				"4": { "name": "punctuation.separator.key-value.html" },
+				"5": { "name": "string.quoted.double.html punctuation.definition.string.begin.html" }
+			},
+			"end": "\\5",
+			"endCaptures": {
+				"0": { "name": "string.quoted.double.html punctuation.definition.string.end.html" }
+			},
+			"contentName": "string.quoted.double.html",
+			"patterns": [{ "include": "#attribute-expression" }]
+		},
+		"bind-attribute": {
+			"comment": "A two-way binding: bind:value=\"@signal\"",
+			"name": "meta.attribute.bind.wire",
+			"begin": "(?<=\\s)(bind)(:)([\\w-]+)(\\s*=\\s*)([\"'])",
+			"beginCaptures": {
+				"1": { "name": "entity.other.attribute-name.wire keyword.control.wire" },
+				"2": { "name": "punctuation.separator.namespace.wire" },
+				"3": { "name": "entity.other.attribute-name.localname.wire variable.other.property.wire" },
+				"4": { "name": "punctuation.separator.key-value.html" },
+				"5": { "name": "string.quoted.double.html punctuation.definition.string.begin.html" }
+			},
+			"end": "\\5",
+			"endCaptures": {
+				"0": { "name": "string.quoted.double.html punctuation.definition.string.end.html" }
+			},
+			"contentName": "string.quoted.double.html",
+			"patterns": [{ "include": "#signal-reference" }]
+		},
+		"bound-attribute": {
+			"comment": "A one-way binding: :class=\"@signal\" or :class=\"@{ expr }\"",
+			"name": "meta.attribute.bound.wire",
+			"begin": "(?<=\\s)(:)([\\w-]+)(\\s*=\\s*)([\"'])",
+			"beginCaptures": {
+				"1": { "name": "punctuation.separator.namespace.wire keyword.control.wire" },
+				"2": { "name": "entity.other.attribute-name.localname.wire variable.other.property.wire" },
+				"3": { "name": "punctuation.separator.key-value.html" },
+				"4": { "name": "string.quoted.double.html punctuation.definition.string.begin.html" }
+			},
+			"end": "\\4",
+			"endCaptures": {
+				"0": { "name": "string.quoted.double.html punctuation.definition.string.end.html" }
+			},
+			"contentName": "string.quoted.double.html",
+			"patterns": [{ "include": "#attribute-expression" }, { "include": "#signal-reference" }]
 		}
 	}
 }

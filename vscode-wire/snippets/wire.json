@@ -52,12 +52,57 @@
 	"Wire: component (definition)": {
 		"prefix": "wire-component",
 		"body": ["<component name=\"${1:name}\" arg:${2:arg}>", "\t$0", "</component>"],
-		"description": "Define a component template"
+		"description": "Define a component template (multi-word args in kebab-case)"
 	},
 	"Wire: component (instance)": {
 		"prefix": "wire-instance",
 		"body": ["<component instance name=\"${1:name}\" arg:${2:arg}=\"${3:@signal}\"></component>"],
 		"description": "Instantiate a component (argument: @signal, @{ expr } or literal)"
+	},
+	"Wire: on (event)": {
+		"prefix": "wire-on",
+		"body": ["on:${1|click,input,change,keydown,keyup,submit,mousedown,focus,blur|}=\"@{ ${2:code} }\""],
+		"description": "Run code when an event fires, with the loop variables, signals and event in scope"
+	},
+	"Wire: button with click": {
+		"prefix": "wire-button",
+		"body": ["<button on:click=\"@{ ${1:code} }\">${2:Label}</button>"],
+		"description": "A button that runs code on click"
+	},
+	"Wire: bound attribute (signal)": {
+		"prefix": "wire-attr",
+		"body": [":${1:disabled}=\"@${2:signal}\""],
+		"description": "One-way attribute binding to a signal"
+	},
+	"Wire: bound attribute (expression)": {
+		"prefix": "wire-attr-expr",
+		"body": [":${1:class}=\"@{ ${2:expr} }\" with=\"@${3:signal}\""],
+		"description": "One-way attribute binding to an expression, re-evaluated when the listed signals change"
+	},
+	"Wire: bind input": {
+		"prefix": "wire-bind",
+		"body": ["<input bind:value=\"@${1:signal}\" />"],
+		"description": "Two-way bound text input"
+	},
+	"Wire: bind number": {
+		"prefix": "wire-bind-number",
+		"body": ["<input type=\"number\" bind:value=\"@${1:signal}\" />"],
+		"description": "Two-way bound number input, the signal holds a number"
+	},
+	"Wire: bind checkbox": {
+		"prefix": "wire-bind-checkbox",
+		"body": ["<input type=\"checkbox\" bind:checked=\"@${1:signal}\" />"],
+		"description": "Two-way bound checkbox, the signal holds a boolean"
+	},
+	"Wire: bind select": {
+		"prefix": "wire-bind-select",
+		"body": ["<select bind:value=\"@${1:signal}\">", "\t<option value=\"${2:value}\">${3:Label}</option>$0", "</select>"],
+		"description": "Two-way bound select"
+	},
+	"Wire: edit a list item": {
+		"prefix": "wire-bind-item",
+		"body": [":value=\"@{ ${1:item}.${2:field} }\" on:input=\"@{ ${1}.${2} = event.target.value; ${3:list}.set(${3}.get()) }\""],
+		"description": "Edit a field of a loop item: show it, write it in place, then set the list signal"
 	},
 	"Wire: State": {
 		"prefix": "wire-state",
@@ -73,5 +118,20 @@
 		"prefix": "wire-listen",
 		"body": ["const stop = ${1:signal}.listen((${2:value}) => {", "\t$0", "});"],
 		"description": "Add a listener, stop() removes it"
+	},
+	"Wire: update": {
+		"prefix": "wire-update",
+		"body": ["${1:signal}.update((${2:value}) => ${3:value});"],
+		"description": "Set a State from its current value, the callback must return it"
+	},
+	"Wire: mount": {
+		"prefix": "wire-mount",
+		"body": ["Wire.mount(${1:parent});"],
+		"description": "Mount wires and bound elements your own code inserted"
+	},
+	"Wire: flush": {
+		"prefix": "wire-flush",
+		"body": ["Wire.flush();"],
+		"description": "Render pending updates now, for code that needs the new DOM straight away"
 	}
 }
